@@ -9,7 +9,8 @@ DigitalOut led_red(LED_RED);
 PwmOut led_blue(LED_BLUE);
 
 
-DigitalOut my_led(PTA13);
+//DigitalOut my_led(PTA13);
+PwmOut my_led(PTA13);
 
 void led_fade_thread(void const *args) {
   // Note that this function doesn't terminate, which is fine since it runs in
@@ -29,11 +30,20 @@ void led_fade_thread(void const *args) {
 }
 
 void blink_my_led(void const *args) {
+	float brightness = 0;
 	while (1) {
-		my_led = 1;
-    Thread::wait(750);
-		my_led = 0;
-    Thread::wait(250);
+		for (float i = -1.0f; i < 1.0f; i += .01)
+		{
+			if(i <= 0){
+				brightness = 1.0f + i;
+			}
+			else{
+				brightness = 1.0f - i;
+			}
+			my_led.write(brightness);
+			Thread::wait(10);
+			serial.printf("brightness: %f\r\n", brightness);
+		}
 	}
 }
 
