@@ -30,21 +30,21 @@ void led_fade_thread(void const *args) {
 }
 
 void blink_my_led(void const *args) {
-	float brightness = 0;
-	while (1) {
-		for (float i = -1.0f; i < 1.0f; i += .01)
-		{
-			if(i <= 0){
-				brightness = 1.0f + i;
-			}
-			else{
-				brightness = 1.0f - i;
-			}
-			my_led.write(brightness);
-			Thread::wait(10);
-			serial.printf("brightness: %f\r\n", brightness);
-		}
-	}
+  float brightness = 0;
+  while (1) {
+    for (float i = -1.0f; i < 1.0f; i += .01)
+    {
+      if(i <= 0){
+        brightness = 1.0f + i;
+      }
+      else{
+        brightness = 1.0f - i;
+      }
+      my_led.write(brightness);
+      Thread::wait(10);
+      serial.printf("brightness: %f\r\n", brightness);
+    }
+  }
 }
 
 void led_blink_periodic(void const *args) {
