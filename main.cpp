@@ -8,6 +8,9 @@ DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 PwmOut led_blue(LED_BLUE);
 
+
+DigitalOut my_led(PTA13);
+
 void led_fade_thread(void const *args) {
   // Note that this function doesn't terminate, which is fine since it runs in
   // a thread.
@@ -21,7 +24,17 @@ void led_fade_thread(void const *args) {
     Thread::wait(250);
     led_blue.write(1 - 0.75);
     Thread::wait(250);
+		// my_led.write(0.75);
   }
+}
+
+void blink_my_led(void const *args) {
+	while (1) {
+		my_led = 1;
+    Thread::wait(750);
+		my_led = 0;
+    Thread::wait(250);
+	}
 }
 
 void led_blink_periodic(void const *args) {
@@ -41,10 +54,9 @@ int main() {
   
   // Mandatory "Hello, world!".
   serial.printf("Hello, world!\r\n");
-
   // Start a thread running led_fade_thread().
-  Thread ledFadeThread(led_fade_thread);
-  
+  // Thread ledFadeThread(led_fade_thread);
+	Thread blinkThread(blink_my_led); 
   // Set a timer to periodically call led_blink_periodic().
   RtosTimer ledBlinkTimer(led_blink_periodic);
   ledBlinkTimer.start(1000);
