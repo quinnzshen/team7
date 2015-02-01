@@ -10,6 +10,8 @@ PwmOut led_blue(LED_BLUE);
 
 PwmOut my_led(PTA13);
 PwmOut my_led2(PTD5);
+PwmOut servo(PTC9);
+PwmOut servo2(PTC8);
 
 void led_fade_thread(void const *args) {
   // Note that this function doesn't terminate, which is fine since it runs in
@@ -54,6 +56,26 @@ void fade_my_led(void const *args) {
 	}
 }
 
+void servo_thread(void const *args) {
+	while (1) {		
+		for (float i = .06f; i <= .09f; i += .002f) {
+			servo = i;
+			Thread::wait(20);
+		}
+		for (float i = .09f; i >= .06f; i -= .002f) {
+			servo = i;
+			Thread::wait(20);
+		}
+  }
+}
+
+void servo_centered(void const *args) {
+	while (1) {
+		servo2 = .075f;
+		Thread::wait(20);
+	}
+}
+
 void led_blink_periodic(void const *args) {
   // Toggle the red LED when this function is called.
   led_red = !led_red;
@@ -68,13 +90,15 @@ int main() {
   wait(0.25);
   led_green = 1;
   wait(0.25);
-  
+	
   // Mandatory "Hello, world!".
   serial.printf("Hello, world!\r\n");
   // Start a thread running led_fade_thread().
   // Thread ledFadeThread(led_fade_thread);
-	Thread blinkThread(blink_my_led); 
-	Thread fadeThread(fade_my_led);
+	// Thread blinkThread(blink_my_led); 
+	// Thread fadeThread(fade_my_led);
+	Thread servoThread(servo_thread);
+	Thread servoCenteredThread(servo_centered);
   // Set a timer to periodically call led_blink_periodic().
   RtosTimer ledBlinkTimer(led_blink_periodic);
   ledBlinkTimer.start(1000);
