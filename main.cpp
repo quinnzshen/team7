@@ -1,58 +1,92 @@
 #include "mbed.h"
 #include "rtos.h"
 #include "MODSERIAL.h"
-#include "telemetry/server-cpp/telemetry.h"
-#include "telemetry/server-cpp/telemetry-mbed.h"
+//#include "telemetry/server-cpp/telemetry.h"
+//#include "telemetry/server-cpp/telemetry-mbed.h"
 
 Serial serial(USBTX, USBRX);
 
-MODSERIAL telemetry_serial ( PTA2 , PTA1 ) ;
+//MODSERIAL telemetry_serial (PTA2, PTA1) ;
+//Serial bluetooth(PTA2, PTA1);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 DigitalOut led_blue(LED_BLUE);
 
-PwmOut servo(PTC9);
-PwmOut motor(PTA5);
+PwmOut servo(PTA12);
+PwmOut motor(PTD4); // IN_LS1
+PwmOut IN_HS1(PTA4);
 
-DigitalOut CLK(PTD4);
-DigitalOut SI(PTD0);
-AnalogIn Aout(PTB0);
+PwmOut motor2(PTA5); // IN_LS2 
+PwmOut IN_HS2(PTC9);
 
-DigitalIn encoder(PTC12);
+AnalogIn Aout(PTB3);  // First camera - Output from camera
+DigitalOut CLK(PTB11);
+DigitalOut SI(PTE2);
+DigitalIn encoder(PTD5); // Left
+//DigitalIn encoder(PTD0); // Right
+
+
+float convert_to_velocity(float period);
+void servoControl(int midpoint);
 
 float target_velocity = 3; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
-float convert_to_velocity(float period);
 float buffer[128];
 
-int ready =0;
+const int LEFTMOTOR = 0;
+const int RIGHTMOTOR = 1;
+const float CENTER = 0.075f;
+const float LEFT = 0.09f;
+const float RIGHT = 0.06f;
+\
+int midpoint = 55;
 
+void motorControl(int LeftOrRight, float speed)
+{
+	if(speed == 0.0f) // if forwarding
+	{
+		if(LeftOrRight == LEFTMOTOR) // left
+		{
+			motor.write(speed);
+			IN_HS1.write(0.0f);
+		}
+		else
+		{
+			motor2.write(speed);
+			IN_HS2.write(0.0f);
+		}
+	}
+	else
+	{
+		if(LeftOrRight == LEFTMOTOR)
+		{
+			motor.write(.0f);
+			IN_HS1.write(1.0f);
+		}
+		else
+		{
+			motor2.write(0.0f);
+			IN_HS2.write(1.0f);
+		}
+	}
+}
 
 void feedback_loop(float current_average){
 	float current_velocity = convert_to_velocity(current_average);
 	float error = target_velocity - current_velocity;
-	
-	serial.printf("Current Velocity: %3.4f in m/s \r\n", current_velocity);
 	error = error / 10 ;
 	float k_const = 0.03f;
-		
 	motor_pwm = k_const * error + motor_pwm;
-	
-	serial.printf("PWM %3.4f in pwm \r\n", motor_pwm);
 	if(motor_pwm >= .3f){
-		serial.printf("TOO BIG.\r\n");
 		motor_pwm = .3f;
 	}
 	else if(motor_pwm < 0.0f){
-		serial.printf("NEGATIVE.\r\n");
 		motor_pwm = .01f;
 	}
-	
 	motor.write(motor_pwm);
-	wait_ms(20);
+	//wait_ms(20);
 }
-
 
 float convert_to_velocity(float period) { // s / rev
 	float circ = 0.1602f; // in m / rev
@@ -64,10 +98,8 @@ void speed_control(void const *args){
 	float buffer[18]; // = {0,0,0,0,0,0};
 	int buffer_pointer = 0;
 	int state = -1;
-	
-	serial.printf("Motor Started\r\n");
 	motor.write(motor_pwm);
-	wait_ms(20);
+	//wait_ms(20);
 	
 	while(1) {
 		// Initialize state & start timer
@@ -75,9 +107,8 @@ void speed_control(void const *args){
 			state = encoder;
 			t.start();
 		}
+		// if it stopped
 		else if(t.read_ms() > 1602){
-			serial.printf("Current Velocity: %3.4f in m/s \r\n", convert_to_velocity(1602.0f/1000));
-			// serial.printf("MOTOR BARELY MOVING. (<.1 m/s)\r\n");
 			t.reset();
 		}
 		else if(encoder != state){
@@ -85,7 +116,6 @@ void speed_control(void const *args){
 			buffer_pointer++;
 			state = encoder;
 			t.reset();
-			
 		}
 		
 		if (buffer_pointer >= 11){
@@ -98,186 +128,126 @@ void speed_control(void const *args){
 }
 
 
-void main_control2(void const *args){
-	while(1) {
-		switch (serial.getc()){
-			// Motor Control
-			case 'h':
-				serial.printf("100%% throttle.\r\n");
-				motor.write(1.0f);
-				break;
-			case 'j':
-				serial.printf("50%% throttle.\r\n");
-				motor.write(.5f);
-				break;
-			case 'k':
-				serial.printf("30%% throttle.\r\n");
-				motor.write(.3f);
-				break;
-			case 'm':
-				serial.printf("5%% throttle.\r\n");
-				motor.write(0.05f);
-				break;
-			case 'l':
-				serial.printf("Stopped throttle.\r\n");
-				motor.write(0.0f);
-				break;
-			// Servo Control
-			case 'w':
-				serial.printf("Centered servo.\r\n");
-				servo.write(0.075f);
-				break;
-			case 'a':
-				serial.printf("Full-left servo.\r\n");
-				servo.write(0.09f);
-				break;
-			case 'd':
-				serial.printf("Full-right servo.\r\n");
-				servo.write(0.06f);
-				break;
-			default:
-				wait_ms(20);
-				break;
-		}
-	}
-}
 
-void led_blink_periodic(void const *args) {
-  // Toggle the red LED when this function is called.
-  led_red = !led_red;
-}
-
-
-void main_control(void const *args){//this is a pointer to a single character in memory  
-  // Assume velocity is controlled by other thread and waiting for signal()
-	int period = 100;
+void mainControl(void const *args){
 	
 	// Minimum intergartion time will be
-	// T = (1/maximum clk) * (n - 18) pixels + 20us
-	// Ex, for 8MHz, T = 0.125us * ( 128 - 18) + 20us 
-	
-	int MAXT = 129;//100*(128-18) + 20;
-	int integrating = MAXT; 
+	// T = (1/maximum clk) * (n - 18) pixels
+	// Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
+	const	int PERIOD = 25; // us
+	const int MICRO = 1000000;
+	const int SIZE = 128;
+	const int INTEGRATIONTIME = 500;
+	int MAXT = 129;
+	int integrating = 0; 
 	int i = 0;
 	
 	// From checking
+	//float buffer_1[128];
+	//float buffer_2[128];
 	float new_buffer[128];
 	float moving_average[128];
 	
+	int mid1 = 55;
+	int mid2 = 56;
+	
+	CLK = 0;
+	
 	while(1)
 	{
+		//serial.printf("YYYY");
 		// From checking
-		float maxValue = 0;
-		float minValue = 128;
-		int maxIndex, minIndex;
-		maxIndex = 0;
-		minIndex = 0;
-		int midpoint = 0;
+		float maxValue = 0, minValue = 128;
+		int maxIndex = 0, minIndex = 0;
 		
 		CLK = 0;
-		SI = integrating == MAXT ? 1 : 0; // If it is integration time, don't set to 1
-		wait_us(period);		
+		SI = integrating == 0; // If it is integration time, don't set to 1
+		wait_us(PERIOD);		
 		
 		CLK = 1;
-		wait_us(period);
+		wait_us(PERIOD);
 		SI = 0;
-		integrating = integrating == 0 ? MAXT : integrating-1;
-		
+		integrating++;
+
 		// We are integrating
-		if(integrating != MAXT)
+		if(integrating < MAXT)
 		{
 			buffer[i] = Aout;
 			i++;
-			ready++;
 		}
-		else
+		else if(integrating == MAXT)
 		{
-			i = 0;
-			ready = 0;
-			for (int k = 0; k < 125; ++k) {
-				moving_average[k] = (1/3.0) * (buffer[k] + buffer[k+1] + buffer[k+2]);
+			for (int k = 1; k < 125; ++k) {
+				moving_average[k] = (1/3.0) * (buffer[k-1] + buffer[k] + buffer[k+1]);
 			}
 			for (int j = 1; j < 125; ++j) {
 				new_buffer[j] = moving_average[j] - moving_average[j-1];
 			}
+			
 			for (int i = 10; i < 120; ++i) {
-				//serial.printf("frame: %d value: %f \r\n", i , new_buffer[i]);
-				if (new_buffer[i] < minValue){
-					minValue = new_buffer[i];
-					minIndex = i;
-				}
-			}
-			for (int i = minIndex; i < 120; ++i) {
 				if (new_buffer[i] > maxValue) {
 					maxValue = new_buffer[i];
 					maxIndex = i;
 				}
 			}
-			midpoint = (maxIndex + minIndex) / 2;
-			//serial.printf("midpoint %d \r\n", midpoint);
-			//wait(1);
-			
-			//serial.printf("midpoint %d \r\n", midpoint);
-			//serial.printf("Level %d \r\n", (int)((midpoint - 65)/15));
-			//servo.write((int)((midpoint - 65)/15) * .006 + .075f);
-			
-			if(midpoint >= 55 && midpoint < 83)
-			{
-				//centered;
-				serial.printf("center %d \r\n", midpoint);
-				servo.write(0.075f);
-			}
-			else if(midpoint >= 83 && midpoint < 125)
-			{
-				//right
-				serial.printf("right %d \r\n", midpoint);
-				servo.write(0.09f);
-			}
-			else if(midpoint < 55 && midpoint >= 0)
-			{
-				//left
-				serial.printf("left %d \r\n", midpoint);
-				servo.write(0.06f);
+			for (int i = maxIndex; i < 120; ++i) {
+				if (new_buffer[i] < minValue){
+					minValue = new_buffer[i];
+					minIndex = i;
+				}
 			}
 			
+			int change = midpoint - (maxIndex + minIndex)/2;
+			change = change > 0? change : -change;
+			const int WIDTH = 20;
+			int absVal = (minValue + maxValue) > 0 ? (minValue + maxValue) : -(minValue + maxValue);
+		  if(change < 40 && (minIndex - maxIndex) < 20)
+			{
+				midpoint = (maxIndex + minIndex) / 2;
+			}
+			else
+			{
+				// mid is not found
+				//midpoint = mid1 + (mid1 - mid2);
+			}
+			//mid2 = mid1;
+			//mid1 = midpoint;
+			servoControl(midpoint);
+			//motorControl(); Not for this checkpoint
 		}
-	}
-}
-
-
-
-void figure8(void const *args)
-{
-	// wait for 5 sec
-	wait(5);
+		else if(integrating > INTEGRATIONTIME)
+		{
+			//serial.printf("MID : %d\r\n", midpoint);
+			integrating = 0;
+			i = 0;
+		}		
 	
-	// Top circle
-	while(1)
-	{
-		// Top circle
-		wait(6.9);
-		motor.write(0.1f); // constant speed 3m/s
-		servo.write(0.09f);
-		
-		wait(6.9);
-		// Bottom Circle -- just reverse steering of the top one
-		servo.write(0.06f);
-		
 	}
 }
-
 /*
-void checking(void const *args)
+	There are 128 possible mid points (prefer 100)
+	Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
+	PWM 0.03 / 128 = 0.00234375
+*/
+void servoControl(int midpoint)
 {
-	
-	while(1)
+	// Assume the cneter is 55
+	int center = 55;
+	const float UNIT = 0.03f / 100;
+	float change;
+	if(midpoint < center)
 	{
-
-		if (ready == 127) {
-			
-		}
+		change = -UNIT * (center - midpoint) * 1.0f;
 	}
-}*/
+	else
+	{
+		change = -UNIT * (center - midpoint) * 1.0f;
+	}
+	
+	servo.write(0.075f + change);
+}
+
+
 
 /*
 void telemetry_thread(void const *args)
@@ -321,35 +291,51 @@ void telemetry_thread(void const *args)
 		
 		telemetry_obj.do_io();
 	}
-}*/
+}
+*/
+/*
+
+void BlueSMiRF(void const *args)
+{
+	bluetooth.printf("CONNECTED\r\n");
+	int i = 0;
+	while(1)
+	{
+		bluetooth.printf("%d : ", i);
+		for(int i = 0; i < 128; i++)
+			bluetooth.printf("%f ", buffer[i]);
+		bluetooth.printf("%d \r\n", midpoint);
+	}
+}
+*/
 
 int main() {
   serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
 	serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
 	
-	led_green.write(1);
+	wait(3);
 	
-	//motor.period(.002f);
+	//bluetooth.format();
+	//bluetooth.baud(115200);
   servo.period(.02f);
+	servo.write(0.075f);	
 	
-	servo.write(0.075f);
-	//motor.write(0.0f); // Assume we are feeding constant velocity
+	motor.period(.001f);
+	IN_HS1.period(.001f);
+	motor.write(0.11f); // Assume we are fee8ding constant velocity
+	IN_HS1.write(0.0f);
 	
-	//CLK.period(0.0001f);
-	//CLK.write(0.0f);
+	motor2.period(0.001f);
+	IN_HS2.period(0.001f);
+	motor2.write(0.11f);
+	IN_HS2.write(0.0f);
 	
-	Thread mainThread(main_control);
-	//Thread checkingThread(checking);
-	
+	Thread mainThread(mainControl);
 	//Thread encoderThread(speed_control);
-	//Thread openloopThread(figure8);
+	
+	//Thread bThread(BlueSMiRF);
+	Thread::wait(2);
+	Thread::wait(osWaitForever);
 	
 	
-	
-	// Set a timer to periodically call led_blink_periodic().
-  //RtosTimer ledBlinkTimer(led_blink_periodic);
-  //ledBlinkTimer.start(1000);
-
-  // Work is done in the threads, so main() can sleep.
-  Thread::wait(osWaitForever);
 }

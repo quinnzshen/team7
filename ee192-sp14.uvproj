@@ -722,6 +722,46 @@
             </File>
           </Files>
         </Group>
+        <Group>
+          <GroupName>telemetry</GroupName>
+          <Files>
+            <File>
+              <FileName>telemetry.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry.cpp</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry.h</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry-arduino.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry-arduino.h</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry-arduino-hal.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry-arduino-hal.cpp</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry-data.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry-data.cpp</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry-mbed.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry-mbed.h</FilePath>
+            </File>
+            <File>
+              <FileName>telemetry-mbed-hal.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>.\telemetry\server-cpp\telemetry-mbed-hal.cpp</FilePath>
+            </File>
+          </Files>
+        </Group>
       </Groups>
     </Target>
   </Targets>
