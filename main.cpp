@@ -35,7 +35,7 @@ float motor_pwm = 0.1f; // 0.07
 float buffer[128];
 
 const int LEFTMOTOR = 0;
-const int RIGHTMOTOR = 1;
+//const int RIGHTMOTOR = 1;
 const float CENTER = 0.075f;
 const float LEFT = 0.09f;
 const float RIGHT = 0.06f;
@@ -135,8 +135,7 @@ void mainControl(void const *args){
 	// T = (1/maximum clk) * (n - 18) pixels
 	// Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
 	const	int PERIOD = 25; // us
-	const int MICRO = 1000000;
-	const int SIZE = 128;
+	//const int SIZE = 128;
 	const int INTEGRATIONTIME = 500;
 	int MAXT = 129;
 	int integrating = 0; 
@@ -148,9 +147,6 @@ void mainControl(void const *args){
 	float new_buffer[128];
 	float moving_average[128];
 	
-	int mid1 = 55;
-	int mid2 = 56;
-	
 	CLK = 0;
 	
 	while(1)
@@ -161,7 +157,7 @@ void mainControl(void const *args){
 		int maxIndex = 0, minIndex = 0;
 		
 		CLK = 0;
-		SI = integrating == 0; // If it is integration time, don't set to 1
+		SI = integrating == 0; 
 		wait_us(PERIOD);		
 		
 		CLK = 1;
@@ -177,6 +173,7 @@ void mainControl(void const *args){
 		}
 		else if(integrating == MAXT)
 		{
+			
 			for (int k = 1; k < 125; ++k) {
 				moving_average[k] = (1/3.0) * (buffer[k-1] + buffer[k] + buffer[k+1]);
 			}
@@ -200,8 +197,8 @@ void mainControl(void const *args){
 			int change = midpoint - (maxIndex + minIndex)/2;
 			change = change > 0? change : -change;
 			const int WIDTH = 20;
-			int absVal = (minValue + maxValue) > 0 ? (minValue + maxValue) : -(minValue + maxValue);
-		  if(change < 40 && (minIndex - maxIndex) < 20)
+			
+		  if(change < 40 && (minIndex - maxIndex) < WIDTH)
 			{
 				midpoint = (maxIndex + minIndex) / 2;
 			}
@@ -209,9 +206,8 @@ void mainControl(void const *args){
 			{
 				// mid is not found
 				//midpoint = mid1 + (mid1 - mid2);
+				//midpoint = midpoint;
 			}
-			//mid2 = mid1;
-			//mid1 = midpoint;
 			servoControl(midpoint);
 			//motorControl(); Not for this checkpoint
 		}
@@ -244,10 +240,20 @@ void servoControl(int midpoint)
 		change = -UNIT * (center - midpoint) * 1.0f;
 	}
 	
-	servo.write(0.075f + change);
+	// Ensure we don't go past servo limits
+	if((change + CENTER) > LEFT)
+	{
+		servo.write(LEFT);
+	}
+	else if((change + CENTER) < RIGHT)
+	{
+		servo.write(RIGHT);
+	}
+	else
+	{
+		servo.write(CENTER + change);
+	}
 }
-
-
 
 /*
 void telemetry_thread(void const *args)
@@ -322,12 +328,12 @@ int main() {
 	
 	motor.period(.001f);
 	IN_HS1.period(.001f);
-	motor.write(0.11f); // Assume we are fee8ding constant velocity
+	motor.write(0.15f); // Assume we are fee8ding constant velocity
 	IN_HS1.write(0.0f);
 	
 	motor2.period(0.001f);
 	IN_HS2.period(0.001f);
-	motor2.write(0.11f);
+	motor2.write(0.15f);
 	IN_HS2.write(0.0f);
 	
 	Thread mainThread(mainControl);
