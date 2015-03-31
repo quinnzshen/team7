@@ -4,10 +4,10 @@
 //#include "telemetry/server-cpp/telemetry.h"
 //#include "telemetry/server-cpp/telemetry-mbed.h"
 
-Serial serial(USBTX, USBRX);
+//Serial serial(USBTX, USBRX);
 
 //MODSERIAL telemetry_serial (PTA2, PTA1) ;
-//Serial bluetooth(PTA2, PTA1);
+Serial bluetooth(PTA2, PTA1);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
@@ -30,45 +30,28 @@ DigitalIn encoder(PTD5); // Left
 float convert_to_velocity(float period);
 void servoControl(int midpoint);
 
-float target_velocity = 3; // average time per phase we are targetting (in ms)
+float target_velocity = 1.5; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
 float buffer[128];
 
 const int LEFTMOTOR = 0;
-//const int RIGHTMOTOR = 1;
+const int RIGHTMOTOR = 1;
 const float CENTER = 0.075f;
 const float LEFT = 0.09f;
 const float RIGHT = 0.06f;
-\
 int midpoint = 55;
 
 void motorControl(int LeftOrRight, float speed)
 {
-	if(speed == 0.0f) // if forwarding
+	if(LeftOrRight == LEFTMOTOR) // left
 	{
-		if(LeftOrRight == LEFTMOTOR) // left
-		{
-			motor.write(speed);
-			IN_HS1.write(0.0f);
-		}
-		else
-		{
-			motor2.write(speed);
-			IN_HS2.write(0.0f);
-		}
+		motor.write(speed);
+		IN_HS1.write(0.0f);
 	}
 	else
 	{
-		if(LeftOrRight == LEFTMOTOR)
-		{
-			motor.write(.0f);
-			IN_HS1.write(1.0f);
-		}
-		else
-		{
-			motor2.write(0.0f);
-			IN_HS2.write(1.0f);
-		}
+		motor2.write(speed);
+		IN_HS2.write(0.0f);
 	}
 }
 
@@ -84,8 +67,10 @@ void feedback_loop(float current_average){
 	else if(motor_pwm < 0.0f){
 		motor_pwm = .01f;
 	}
-	motor.write(motor_pwm);
-	//wait_ms(20);
+	
+	//motor.write(motor_pwm);
+	motorControl(LEFTMOTOR, motor_pwm);
+	motorControl(RIGHTMOTOR, motor_pwm);
 }
 
 float convert_to_velocity(float period) { // s / rev
@@ -93,15 +78,16 @@ float convert_to_velocity(float period) { // s / rev
 	return circ / period;
 }
 
-void speed_control(void const *args){
+void speed_control(Timer timer){
 	Timer t;
 	float buffer[18]; // = {0,0,0,0,0,0};
 	int buffer_pointer = 0;
 	int state = -1;
-	motor.write(motor_pwm);
-	//wait_ms(20);
+	//motor.write(motor_pwm);
+	motorControl(LEFTMOTOR, motor_pwm);
+	motorControl(RIGHTMOTOR, motor_pwm);
 	
-	while(1) {
+	while(timer.read_ms() < 16) {
 		// Initialize state & start timer
 		if (state == -1){
 			state = encoder;
@@ -129,7 +115,7 @@ void speed_control(void const *args){
 
 
 
-void mainControl(void const *args){
+void mainControl(){
 	
 	// Minimum intergartion time will be
 	// T = (1/maximum clk) * (n - 18) pixels
@@ -140,18 +126,15 @@ void mainControl(void const *args){
 	int MAXT = 129;
 	int integrating = 0; 
 	int i = 0;
-	
-	// From checking
-	//float buffer_1[128];
-	//float buffer_2[128];
 	float new_buffer[128];
 	float moving_average[128];
-	
+	Timer t;
+	t.start();
 	CLK = 0;
 	
+	t.reset();
 	while(1)
 	{
-		//serial.printf("YYYY");
 		// From checking
 		float maxValue = 0, minValue = 128;
 		int maxIndex = 0, minIndex = 0;
@@ -209,17 +192,20 @@ void mainControl(void const *args){
 				//midpoint = midpoint;
 			}
 			servoControl(midpoint);
-			//motorControl(); Not for this checkpoint
+			// Speed control;
+			//speed_control(t);
 		}
-		else if(integrating > INTEGRATIONTIME)
+		
+		if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
 		{
-			//serial.printf("MID : %d\r\n", midpoint);
+			t.reset();
 			integrating = 0;
 			i = 0;
 		}		
 	
 	}
 }
+
 /*
 	There are 128 possible mid points (prefer 100)
 	Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
@@ -229,15 +215,16 @@ void servoControl(int midpoint)
 {
 	// Assume the cneter is 55
 	int center = 55;
+	float k_p = 0.9f;
 	const float UNIT = 0.03f / 100;
 	float change;
 	if(midpoint < center)
 	{
-		change = -UNIT * (center - midpoint) * 1.0f;
+		change = -UNIT * (center - midpoint) * k_p;
 	}
 	else
 	{
-		change = -UNIT * (center - midpoint) * 1.0f;
+		change = -UNIT * (center - midpoint) * k_p;
 	}
 	
 	// Ensure we don't go past servo limits
@@ -255,51 +242,7 @@ void servoControl(int midpoint)
 	}
 }
 
-/*
-void telemetry_thread(void const *args)
-{
-	telemetry::MbedHal telemetry_hal(telemetry_serial);
-	telemetry::Telemetry telemetry_obj(telemetry_hal);
-	
-	// define data
-	telemetry::Numeric<uint32_t> tele_time_ms(telemetry_obj,
-																						"time", "Time", "ms", 0);
-	telemetry::Numeric<float> tele_steer_angle_pct(telemetry_obj,
-																						        "steer_angle", "Steer Angle", "Pct.", 0);
-	telemetry::Numeric<float> tele_motor_left_duty(telemetry_obj,
-																						        "motor_left_duty", "Duty", "%", 0);
-	telemetry::Numeric<float> tele_motor_right_duty(telemetry_obj,
-																						        "motor_right_duty", "Duty", "%", 0);
-	telemetry::NumericArray<uint16_t, 128> tele_linescan(
-		telemetry_obj, "linescan", "Linescan", "ADC", 0);
-	
-	// set limits
-	tele_steer_angle_pct.set_limits(-1.1, 1.1);
-	tele_motor_left_duty.set_limits(-0.1, 1.1);
-	tele_motor_right_duty.set_limits(-0.1, 1.1);
-	
-	// transmit header once at the beginning
-	telemetry_obj.transmit_header();
-	
-	Timer timer;
-	timer.start();
-	int start = timer.read_ms();
-	
-	telemetry_obj.do_io();
-	Thread::wait(100);
-	
-	while (true) {
-		tele_time_ms = timer.read_ms() - start;
 
-		for(int i=0; i < 128; ++i) {
-			tele_linescan[i] = (int)(65536 * buffer[i]);
-		}		
-		
-		telemetry_obj.do_io();
-	}
-}
-*/
-/*
 
 void BlueSMiRF(void const *args)
 {
@@ -307,41 +250,46 @@ void BlueSMiRF(void const *args)
 	int i = 0;
 	while(1)
 	{
+		/* Printing buffer
 		bluetooth.printf("%d : ", i);
 		for(int i = 0; i < 128; i++)
 			bluetooth.printf("%f ", buffer[i]);
 		bluetooth.printf("%d \r\n", midpoint);
+		Thread::wait(2);
+		*/
+		bluetooth.printf("Mid point: %d \r\n", midpoint);
+		bluetooth.printf("Speed    : %f m/s \r\n", 3);
+		
+		Thread::wait(5);
 	}
 }
-*/
+
 
 int main() {
-  serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
-	serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
+  bluetooth.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
+	bluetooth.printf("Built " __DATE__ " " __TIME__ "\r\n");  
 	
 	wait(3);
 	
-	//bluetooth.format();
-	//bluetooth.baud(115200);
+	
+	// Initializing
+	bluetooth.format();
+	bluetooth.baud(115200);
   servo.period(.02f);
 	servo.write(0.075f);	
-	
 	motor.period(.001f);
 	IN_HS1.period(.001f);
-	motor.write(0.15f); // Assume we are fee8ding constant velocity
+	motor.write(0.3f); // Assume we are fee8ding constant velocity
 	IN_HS1.write(0.0f);
-	
 	motor2.period(0.001f);
 	IN_HS2.period(0.001f);
-	motor2.write(0.15f);
+	motor2.write(0.3f);
 	IN_HS2.write(0.0f);
 	
-	Thread mainThread(mainControl);
-	//Thread encoderThread(speed_control);
-	
 	//Thread bThread(BlueSMiRF);
-	Thread::wait(2);
-	Thread::wait(osWaitForever);
+	
+	mainControl();
+	
 	
 	
 }
