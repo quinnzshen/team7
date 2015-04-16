@@ -1,13 +1,11 @@
 #include "mbed.h"
 #include "rtos.h"
 #include "MODSERIAL.h"
-//#include "telemetry/server-cpp/telemetry.h"
-//#include "telemetry/server-cpp/telemetry-mbed.h"
+#include "telemetry/server-cpp/telemetry.h"
+#include "telemetry/server-cpp/telemetry-mbed.h"
 
-//Serial serial(USBTX, USBRX);
-
-//MODSERIAL telemetry_serial (PTA2, PTA1) ;
-Serial bluetooth(PTA2, PTA1);
+MODSERIAL telemetry_serial (PTA2, PTA1) ;
+//Serial bluetooth(PTA2, PTA1);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
@@ -35,7 +33,22 @@ void dynamicPERIOD();
 float target_velocity = 8; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
 float buffer[128];
+float track_buffer[128];
+float moving_average[128];
 float exposure = 0;
+float camera_normalization[128] = {25,35,37,44,51,56,58,60,66,69,
+																		71,73,77,79,81,83,86,87,89,91,
+																		93,93,95,96,97,97,97,98,99,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,100,100,100,100,100,100,100,100,
+																		100,100,99,99,98,97,95,94,93,92,
+																		91,90,89,87,85,84,82,80,79,77,
+																		76,75,75,75,74,73,72,70,68,64,
+																		57,53,44,42,37,31,24,22};
 
 const int LEFTMOTOR = 0;
 const int RIGHTMOTOR = 1;
@@ -46,6 +59,9 @@ float current_velocity;
 int midpoint = 55;
 int buffer_pointer;
 int PERIOD = 1;
+
+int LEFT_EDGE = -1;
+int RIGHT_EDGE = -1;
 
 void motorControl(int LeftOrRight, float speed)
 {
@@ -405,8 +421,10 @@ void freescale()
 	int integrating = 0; 
 	int i = 0;
 	int counter = 0;
-	float new_buffer[128];
-	float moving_average[128];
+	float TRACK_COLOR_THRESHOLD = -450000000;
+	float high_pass_buffer[127];
+	//float moving_average[128];
+	//float track_buffer[128];
 	float TOTALVAL = 0.0f;
 	Timer t;
 	t.start();
@@ -422,7 +440,6 @@ void freescale()
 		
 		float highestValue = 0.0f;
 		int highestValueIndex = 0;
-		
 		
 		CLK = 0;
 		SI = integrating == 0; 
@@ -440,21 +457,51 @@ void freescale()
 			i++;
 		}
 		else if(integrating == MAXT)
-		{
-			// Low pass filter
-			for (int k = 1; k < 125; ++k) {
+		{	
+			// Normalize Camera Data
+			for (int m = 0; m < 128; ++m) {
+				buffer[i] = buffer[i] * (100.0f/camera_normalization[i]);
+			}
+			
+			// Low Pass Filter
+			for (int k = 0; k < 128; ++k) {
 				// To find the track
-				if(k > 18 && buffer[k] > highestValue)
+				if(buffer[k] > highestValue)
 				{
 					highestValueIndex = k;
 				}
-				moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
-			}
-			// High pass
-			for (int j = 1; j < 125; ++j) {
-				new_buffer[j] = moving_average[j] - moving_average[j-1];
+				if(k > 0 && k < 127){
+					moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+				}
+				else if(k == 0){
+					moving_average[k] = (1.0f/2.0f) * (buffer[k] + buffer[k+1]);
+				}
+				else if(k == 127){
+					moving_average[k] = (1.0f/2.0f) * (buffer[k-1] + buffer[k]);
+				}
 			}
 			
+			/*
+			// High Pass Filter
+			for (int j = 0; j < 127; ++j) {
+				high_pass_buffer[j] = moving_average[j] - moving_average[j+1];
+			}
+		
+			// After high pass, PIXEL 63 is now center.
+			*/
+			
+			/*
+			for (int n = 0; n < 128; ++n) {
+				if(moving_average[n] < TRACK_COLOR_THRESHOLD){
+					track_buffer[n] = 0;
+				}
+				else{
+					track_buffer[n] = 1;
+				}
+			}
+			*/
+			
+			/*
 			// After highpass, we will have one high pass, and one low value
 			for (int i = 10; i < 120; ++i) {
 				if (new_buffer[i] > maxValue) {
@@ -462,12 +509,14 @@ void freescale()
 					maxIndex = i;
 				}
 			}	
-			for (int i = maxIndex; i < 120; ++i) {
+			for (int i = 10; i < 120; ++i) {
 				if (new_buffer[i] < minValue){
 					minValue = new_buffer[i];
 					minIndex = i;
 				}
 			}
+			*/
+			
 			// This constact MUST be changed.
 			int change = midpoint - (maxIndex + minIndex)/2;
 			change = change > 0? change : -change;
@@ -492,7 +541,7 @@ void freescale()
 			t.reset();
 			integrating = 0;
 			i = 0;
-			servoControl_race(midpoint);
+			servoControl_freescale(midpoint);
 		}
 	}
 }
@@ -533,7 +582,7 @@ void servoControl_freescale(int midpoint)
 }
 
 
-
+/*
 void BlueSMiRF(void const *args)
 {
 	Thread::wait(10000);
@@ -545,25 +594,63 @@ void BlueSMiRF(void const *args)
 		
 		if(bluetooth.writeable())
 		{
-			bluetooth.printf("%d\r\n", midpoint);
+			//bluetooth.printf("%d\r\n", midpoint);
 	
+			printf("PROCESSED_LINE::::");
+			for(int i = 0; i < 128; ++i){
+				bluetooth.printf("%d", track_buffer[i]);
+			}
+			printf("\r\n");
+			
+			
+			bluetooth.printf("%d\r\n", buffer[65]);
 		}
 		
-		Thread::wait(100);
+		Thread::wait(3000);
+	}
+}
+*/
+
+void telemetry_thread(void const *args){
+	telemetry_serial.format();
+	telemetry_serial.baud(115200);
+	
+	telemetry::MbedHal telemetry_hal(telemetry_serial);
+	telemetry::Telemetry telemetry_obj(telemetry_hal);
+	
+	telemetry::Numeric<uint32_t> tele_time_ms(telemetry_obj, "time", "Time", "ms", 0);
+	telemetry::NumericArray<uint16_t, 128> tele_linescan(telemetry_obj, "linescan", "Linescan", "ADC", 0);  
+
+	telemetry_obj.transmit_header();
+	
+	Timer timer;
+	timer.start();
+	int start = timer.read_ms();
+	
+	telemetry_obj.do_io();
+	Thread::wait(100);
+	
+	// Continuously Gather Data
+	while(1){
+		tele_time_ms = timer.read_ms() - start;
+		
+		for (int i = 0; i < 128; ++i){
+			tele_linescan[i] = (int)(buffer[i] * 65536);
+		}
+		
+		telemetry_obj.do_io();
 	}
 }
 
-
 int main() {
-  bluetooth.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
-	bluetooth.printf("Built " __DATE__ " " __TIME__ "\r\n");  
+  //telemetry_serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
+	//telemetry_serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
 	
 	wait(2);
 	
-	
 	// Initializing
-	bluetooth.format();
-	bluetooth.baud(115200);
+	//telemetry_serial.format();
+	//telemetry_serial.baud(115200);
   servo.period(.02f);
 	servo.write(0.075f);	
 	motor.period(.001f);
@@ -574,9 +661,9 @@ int main() {
 	IN_HS2.period(0.001f);
 	motor2.write(0.333f);
 	IN_HS2.write(0.0f);
-	Thread bThread(BlueSMiRF);
+	//Thread bThread(BlueSMiRF);
+	Thread teleThread(telemetry_thread);
 	
 	mainControl();
 	//freescale();
-	
 }
