@@ -1,24 +1,29 @@
 #include "mbed.h"
 #include "rtos.h"
 #include "MODSERIAL.h"
-#include "telemetry.h"
-#include "telemetry-mbed.h"
 
-MODSERIAL telemetry_serial (PTA2, PTA1) ;
-//Serial bluetooth(PTA2, PTA1);
+/* ONLINE COMPILER */
+//#include "telemetry.h"
+//#include "telemetry-mbed.h"
+
+/* LAB COMPUTER COMPILER */
+#include "telemetry/server-cpp/telemetry.h"
+#include "telemetry/server-cpp/telemetry-mbed.h"
+
+MODSERIAL telemetry_serial (PTA2, PTA1);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 DigitalOut led_blue(LED_BLUE);
 Ticker flipper;
 PwmOut servo(PTA12);
-PwmOut motor(PTD4); // IN_LS1
-PwmOut IN_HS1(PTA4);
+PwmOut motor_left(PTD4); // IN_LS1
+PwmOut brake_left(PTA4); // IN_HS1
 
-PwmOut motor2(PTA5); // IN_LS2 
-PwmOut IN_HS2(PTC9);
+PwmOut motor_right(PTA5); // IN_LS2 
+PwmOut brake_right(PTC9); // IN_HS2
 
-AnalogIn Aout(PTB3);  // First camera - Output from camera
+AnalogIn camera1(PTB3);  // First camera - Output from camera
 DigitalOut CLK(PTB11);
 DigitalOut SI(PTE2);
 DigitalIn encoder(PTD5); // Left
@@ -32,7 +37,7 @@ void dynamicPERIOD();
 
 float target_velocity = 8; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
-float buffer[128];
+float linescan_buffer[128];
 float track_buffer[128];
 float moving_average[128];
 float exposure = 0;
@@ -66,13 +71,13 @@ void motorControl(int LeftOrRight, float speed)
 {
     if(LeftOrRight == LEFTMOTOR) // left
     {
-        motor.write(speed);
-        IN_HS1.write(0.0f);
+        motor_left.write(speed);
+        brake_left.write(0.0f);
     }
     else
     {
-        motor2.write(speed);
-        IN_HS2.write(0.0f);
+        motor_right.write(speed);
+        brake_right.write(0.0f);
     }
 }
 
@@ -169,14 +174,14 @@ void mainControl(){
         // We are integrating
         if(integrating < MAXT)
         {
-            buffer[i] = Aout;
+            linescan_buffer[i] = camera1;
             i++;
         }
         else if(integrating == MAXT)
         {
             
             for (int k = 1; k < 125; ++k) {
-                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+                moving_average[k] = (1.0f/3.0f) * (linescan_buffer[k-1] + linescan_buffer[k] + linescan_buffer[k+1]);
             }
             for (int j = 1; j < 125; ++j) {
                 new_buffer[j] = moving_average[j] - moving_average[j-1];
@@ -313,15 +318,15 @@ void race(){
         // We are integrating
         if(integrating < MAXT)
         {
-            buffer[i] = Aout;
-            TOTALVAL += buffer[i];
+            linescan_buffer[i] = camera1;
+            TOTALVAL += linescan_buffer[i];
             i++;
         }
         else if(integrating == MAXT)
         {
             
             for (int k = 1; k < 125; ++k) {
-                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+                moving_average[k] = (1.0f/3.0f) * (linescan_buffer[k-1] + linescan_buffer[k] + linescan_buffer[k+1]);
             }
             for (int j = 1; j < 125; ++j) {
                 new_buffer[j] = moving_average[j] - moving_average[j-1];
@@ -414,6 +419,7 @@ void freescale()
     int MAXT = 129;
     int integrating = 0; 
     int i = 0;
+		float normalized_buffer[128];
     //float moving_average[128];
     //float track_buffer[128];
     Timer t;
@@ -437,36 +443,36 @@ void freescale()
         CLK = 1;
         wait_us(PERIOD);
         SI = 0;
-        integrating++;
+        ++integrating;
 
         // We are integrating
         if(integrating < MAXT)
         {
-            buffer[i] = Aout;
-            i++;
+            linescan_buffer[i] = camera1;
+            ++i;
         }
         else if(integrating == MAXT)
         {   
             // Normalize Camera Data
             for (int m = 0; m < 128; ++m) {
-                buffer[i] = buffer[i] * (100.0f/camera_normalization[i]);
+                normalized_buffer[i] = linescan_buffer[i] * (100.0f/camera_normalization[i]);
             }
             
             // Low Pass Filter
             for (int k = 0; k < 128; ++k) {
                 // To find the track
-                if(buffer[k] > highestValue)
+                if(linescan_buffer[k] > highestValue)
                 {
                     highestValueIndex = k;
                 }
                 if(k > 0 && k < 127){
-                    moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+                    moving_average[k] = (1.0f/3.0f) * (normalized_buffer[k-1] + normalized_buffer[k] + normalized_buffer[k+1]);
                 }
                 else if(k == 0){
-                    moving_average[k] = (1.0f/2.0f) * (buffer[k] + buffer[k+1]);
+                    moving_average[k] = (1.0f/2.0f) * (normalized_buffer[k] + normalized_buffer[k+1]);
                 }
                 else if(k == 127){
-                    moving_average[k] = (1.0f/2.0f) * (buffer[k-1] + buffer[k]);
+                    moving_average[k] = (1.0f/2.0f) * (normalized_buffer[k-1] + normalized_buffer[k]);
                 }
             }
             
@@ -525,7 +531,7 @@ void freescale()
         // We can either collecting more data but we are not doing ot right now
         // Anyway, we update the servo at every 256 us * 80 = 20.48 ms to be safe 
         // between 60 ~ 70
-        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
+        if(t.read_ms() >= 16 && integrating >= MAXT)//integrating > INTEGRATIONTIME)
         {   
             t.reset();
             integrating = 0;
@@ -624,7 +630,7 @@ void telemetry_thread(void const *args){
         tele_time_ms = timer.read_ms() - start;
         
         for (int i = 0; i < 128; ++i){
-            tele_linescan[i] = (uint8_t)(buffer[i] * 255);
+            tele_linescan[i] = (uint8_t)(linescan_buffer[i] * 255);
         }
         
         telemetry_obj.do_io();
@@ -632,7 +638,7 @@ void telemetry_thread(void const *args){
 }
 
 int main() {
-  //telemetry_serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
+    //telemetry_serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
     //telemetry_serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
     
     wait(2);
@@ -642,14 +648,14 @@ int main() {
     //telemetry_serial.baud(115200);
     servo.period(.02f);
     servo.write(0.075f);    
-    motor.period(.001f);
-    IN_HS1.period(.001f);
-    motor.write(0.333f); // Assume we are fee8ding constant velocity
-    IN_HS1.write(0.0f);
-    motor2.period(0.001f);
-    IN_HS2.period(0.001f);
-    motor2.write(0.333f);
-    IN_HS2.write(0.0f);
+    motor_left.period(.001f);
+    brake_left.period(.001f);
+    motor_left.write(0.333f); // Assume we are feeding constant velocity
+    brake_left.write(0.0f);
+    motor_right.period(0.001f);
+    brake_right.period(0.001f);
+    motor_right.write(0.333f);
+    brake_right.write(0.0f);
     //Thread bThread(BlueSMiRF);
     Thread teleThread(telemetry_thread);
     
