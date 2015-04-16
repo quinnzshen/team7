@@ -607,7 +607,7 @@ void BlueSMiRF(void const *args)
 */
 
 void telemetry_thread(void const *args){
-    telemetry_serial.format();
+    //telemetry_serial.format();
     telemetry_serial.baud(115200);
     
     telemetry::MbedHal telemetry_hal(telemetry_serial);
@@ -634,6 +634,8 @@ void telemetry_thread(void const *args){
         }
         
         telemetry_obj.do_io();
+				
+				Thread::wait(200);
     }
 }
 
