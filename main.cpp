@@ -158,7 +158,7 @@ void freescale()
     // Minimum intergartion time will be
     // T = (1/maximum clk) * (n - 18) pixels
     // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
-    PERIOD = 1; // us
+    PERIOD = 25; // us
     //const int SIZE = 128;
     int MAXT = 129;
     int integrating = 0; 
@@ -173,7 +173,7 @@ void freescale()
     int min_index = 0;
     int max_index = 0;
 
-    int threshold = 1200;
+    int threshold = 1200*10;
     int bias = 32768;
 
     bool left_edge = false;
@@ -332,7 +332,7 @@ void servoControl_freescale(int midpoint)
 {
     // Assume the center is 64 (1 to 127 pixels)
     int center = 64;
-    float k_p = 0.9f;
+    float k_p = 1.0f;
     const float UNIT = 0.03f / 127;
     float change;
     if(midpoint < 0)
@@ -368,213 +368,6 @@ void servoControl_freescale(int midpoint)
     }
 }
 
-
-void freescale2()
-{
-    // Minimum intergartion time will be
-    // T = (1/maximum clk) * (n - 18) pixels
-    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
-    PERIOD = 1; // us
-    //const int SIZE = 128;
-    int MAXT = 129;
-    int integrating = 0; 
-    int i = 0;
-    Timer t;
-    t.start();
-    CLK = 0;
-    t.reset();
-    float min_value = 65535;
-    float max_value = 0;
-
-    int min_index = 0;
-    int max_index = 0;
-
-    int threshold = 1200;
-    int bias = 32768;
-
-    bool left_edge = false;
-    bool right_edge = false;
-		float linescan_buffer[128];
-		float low_pass_filter[128];
-		float high_pass_filter[128];
-    while(1)
-    {
-        // From checking
-        CLK = 0;
-        SI = integrating == 0; 
-        wait_us(PERIOD);
-        
-        CLK = 1;
-        wait_us(PERIOD);
-        SI = 0;
-        ++integrating;
-
-        min_value = 65535;
-        max_value = 0;
-
-        min_index = 0;
-        max_index = 0;
-
-        left_edge = false;
-        right_edge = false;
-				
-        // We are integrating
-        if(integrating < MAXT)
-        {
-            linescan_buffer[i] = (float)camera1;
-            ++i;
-        }
-        else if(integrating == MAXT)
-        {   
-            // Low Pass Filter
-            for (int k = 0; k < 128; ++k) {
-                if(k > 0 && k < 127){
-                    low_pass_filter[k] = (1.0f/3.0f) * (linescan_buffer[k-1] + linescan_buffer[k] + linescan_buffer[k+1]);
-                }
-                else if(k == 0){
-                    low_pass_filter[k] = (1.0f/2.0f) * (linescan_buffer[k] + linescan_buffer[k+1]);
-                }
-                else if(k == 127){
-                    low_pass_filter[k] = (1.0f/2.0f) * (linescan_buffer[k-1] + linescan_buffer[k]);
-                }
-            }
-            
-            // High Pass Filter
-            for (int j = 1; j < 127; ++j) {
-                high_pass_filter[j] = ((low_pass_filter[j]/2) - (low_pass_filter[j-1]/2));
-            }
-        
-            // After high pass, PIXEL 63 is now center.
-            
-            for (int j = 5; j < 120; ++j) {
-                if (high_pass_filter[j] > max_value){
-                    max_value = high_pass_filter[j];
-                    max_index = j;
-                }
-                if (high_pass_filter[j] < min_value){
-                    min_value = high_pass_filter[j];
-                    min_index = j;
-                }
-            }
-
-            // Doesn't account for crossings.
-            if (max_value > (bias + threshold)){
-                right_edge = true;
-            }
-
-            if (min_value < (bias - threshold)){
-                left_edge = true;
-            }
-            
-            if (right_edge && left_edge && (min_index > max_index))
-            {
-                // Found dying edge
-                if(min_index - max_index < 6)
-                {
-                    if(-min_value > max_value)
-                    {
-                        right_edge = false;
-                    }
-                    else
-                    {
-                        left_edge = false;
-                    }
-                        
-                }
-                else
-                {
-                    // Do something more than invalidate the edge
-                    if(-min_value > max_value)
-                    {
-                        right_edge = false;
-                    }
-                    else
-                    {
-                        left_edge = false;
-                    }
-                }                
-                
-            }
-
-            if (left_edge && right_edge){
-                midpoint = (min_index + max_index)/2;
-            }
-            else if (left_edge){
-                midpoint = (min_index + 54);
-            }
-            else if (right_edge){
-                midpoint = (max_index - 54);
-            }
-            else{
-                // Do Nothing.
-            }
-            
-            //printf("Midpoint: %d, Min Index: %d, Max Index: %d\r\n", midpoint, min_index, max_index);
-            min_value_hold = min_value;
-            max_value_hold = max_value;
-            min_index_hold = min_index;
-            max_index_hold = max_index;
-            left_edge_hold = left_edge;
-            right_edge_hold = right_edge;
-            servoControl_freescale(midpoint);
-        }
-        // Period is 2 us
-        // We are collecting data 128 times which is total integration time to be 256 us.
-        // We can either collecting more data but we are not doing ot right now
-        // Anyway, we update the servo at every 256 us * 80 = 20.48 ms to be safe 
-        // between 60 ~ 70
-        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
-        {   
-            t.reset();
-            integrating = 0;
-            i = 0;
-        }
-    }
-}
-/*
-    There are 128 possible mid points (prefer 100)
-    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
-    PWM 0.03 / 128 = 0.00234375
-*/
-void servoControl_freescale2(int midpoint)
-{
-    // Assume the center is 64 (1 to 127 pixels)
-    int center = 64;
-    float k_p = 0.9f;
-    const float UNIT = 0.03f / 127;
-    float change;
-    if(midpoint < 0)
-    {
-        midpoint = 0;
-    }
-    else if (midpoint > 128)
-    {
-        midpoint = 127;
-    }
-        
-    if(midpoint < center)
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    else
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    
-    // Ensure we don't go past servo limits
-    if((change + CENTER) > LEFT)
-    {
-        servo.write(LEFT);
-    }
-    else if((change + CENTER) < RIGHT)
-    {
-        servo.write(RIGHT);
-    }
-    else
-    {
-        servo.write(CENTER + change);
-    }
-}
 
 void BlueSMiRF(void const *args)
 {
@@ -702,8 +495,6 @@ int main() {
     brake_right.write(0.0f);
     Thread bThread(BlueSMiRF);
     //Thread teleThread(telemetry_thread);
-    
     //mainControl();
-    //freescale();
-		freescale2();
+    freescale();
 }
