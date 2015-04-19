@@ -212,7 +212,7 @@ class WaterfallPlot(BasePlot):
       xmin, xmax = self.subplot.get_xlim()
       t = np.linspace(xmin, xmax, len(self.y))
       self.lines = self.subplot.plot(t, self.y, 'b-')
-      #self.subplot.set_ylim(65535)
+      self.subplot.set_ylim((0,65535))
 
 
 plot_registry = {}
