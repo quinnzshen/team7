@@ -88,3 +88,5 @@
 .\build\main.o: mbed-rtos/rtos/MemoryPool.h
 .\build\main.o: mbed-rtos/rtos/Queue.h
 .\build\main.o: MODSERIAL\MODSERIAL.h
+.\build\main.o: telemetry/server-cpp/telemetry.h
+.\build\main.o: telemetry/server-cpp/telemetry-mbed.h

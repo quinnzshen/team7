@@ -1,5 +1,5 @@
 Dependencies for Project 'ee192-sp14', Target 'mbed FRDM-KL25Z': (DO NOT MODIFY !)
-F (main.cpp)(0x550ADF14)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\main.o --omf_browse .\build\main.crf --depend .\build\main.d)
+F (main.cpp)(0x55317F5C)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\main.o --omf_browse .\build\main.crf --depend .\build\main.d)
 I (mbed\mbed.h)(0x54C6EC13)
 I (mbed\platform.h)(0x54C6EC13)
 I (mbed/TARGET_KL25Z/device.h)(0x54C6EC13)
@@ -84,6 +84,8 @@ I (mbed-rtos/rtos/Mail.h)(0x54C6EC12)
 I (mbed-rtos/rtos/MemoryPool.h)(0x54C6EC12)
 I (mbed-rtos/rtos/Queue.h)(0x54C6EC12)
 I (MODSERIAL\MODSERIAL.h)(0x54C6EC12)
+I (telemetry/server-cpp/telemetry.h)(0x5502A170)
+I (telemetry/server-cpp/telemetry-mbed.h)(0x5502A170)
 F (.\mbed-rtos\rtx\TARGET_M0P\TOOLCHAIN_ARM\HAL_CM0.c)(0x54C6EC12)(-c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\hal_cm0.o --omf_browse .\build\hal_cm0.crf --depend .\build\hal_cm0.d)
 I (mbed-rtos/rtx/rt_TypeDef.h)(0x54C6EC12)
 I (mbed-rtos/rtx/os_tcb.h)(0x54C6EC12)
@@ -1131,15 +1133,15 @@ I (MODSERIAL\MACROS.h)(0x54C6EC12)
 I (MODSERIAL/Device/MODSERIAL_LPC1768.h)(0x54C6EC12)
 I (MODSERIAL/Device/MODSERIAL_LPC11U24.h)(0x54C6EC12)
 I (MODSERIAL/Device/MODSERIAL_KL25Z.h)(0x54C6EC12)
-F (.\telemetry\server-cpp\telemetry.cpp)(0x5502F463)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\telemetry.o --omf_browse .\build\telemetry.crf --depend .\build\telemetry.d)
-I (telemetry\server-cpp\telemetry.h)(0x5502A170)
+F (.\telemetry\server-cpp\telemetry.cpp)(0x552F3976)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\telemetry.o --omf_browse .\build\telemetry.crf --depend .\build\telemetry.d)
+I (.\telemetry/server-cpp/telemetry.h)(0x5502A170)
 I (C:\Keil\ARM\ARMCC\include\stddef.h)(0x541A706A)
 I (C:\Keil\ARM\ARMCC\include\stdint.h)(0x541A706A)
 F (.\telemetry\server-cpp\telemetry.h)(0x5502A170)()
 F (.\telemetry\server-cpp\telemetry-arduino.h)(0x5502A170)()
 F (.\telemetry\server-cpp\telemetry-arduino-hal.cpp)(0x5502A170)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\telemetry-arduino-hal.o --omf_browse .\build\telemetry-arduino-hal.crf --depend .\build\telemetry-arduino-hal.d)
-F (.\telemetry\server-cpp\telemetry-data.cpp)(0x5502F469)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\telemetry-data.o --omf_browse .\build\telemetry-data.crf --depend .\build\telemetry-data.d)
-I (telemetry\server-cpp\telemetry.h)(0x5502A170)
+F (.\telemetry\server-cpp\telemetry-data.cpp)(0x552F398D)(--cpp -c --cpu Cortex-M0+ -g -O0 --apcs=interwork -I. -Imbed -Imbed/TARGET_KL25Z -Imbed/TARGET_KL25Z/TOOLCHAIN_ARM_STD -Imbed-rtos -Imbed-rtos/rtx -Imbed-rtos/rtx/TARGET_M0P -Imbed-rtos/rtx/TARGET_M0P/TOOLCHAIN_ARM -Imbed-rtos/rtos -IMODSERIAL -IMODSERIAL/Device --gnu-I C:\Keil\ARM\RV31\INC-I C:\Keil\ARM\CMSIS\Include-I C:\Keil\ARM\Inc\Freescale\Kinetis-DMKL25Z128xxx4 -DTARGET_KL25Z -DTARGET_M0P -DTARGET_Freescale -DTOOLCHAIN_ARM_STD -DTOOLCHAIN_ARM -D__CORTEX_M0PLUS -DARM_MATH_CM0PLUS-o .\build\telemetry-data.o --omf_browse .\build\telemetry-data.crf --depend .\build\telemetry-data.d)
+I (.\telemetry/server-cpp/telemetry.h)(0x5502A170)
 I (C:\Keil\ARM\ARMCC\include\stddef.h)(0x541A706A)
 I (C:\Keil\ARM\ARMCC\include\stdint.h)(0x541A706A)
 I (C:\Keil\ARM\ARMCC\include\string.h)(0x541A706C)
