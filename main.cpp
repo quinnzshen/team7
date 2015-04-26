@@ -1,36 +1,26 @@
 #include "mbed.h"
 #include "rtos.h"
 #include "MODSERIAL.h"
-
-// ONLINE COMPILER
-#include "telemetry.h"
-#include "telemetry-mbed.h"
-#include "FastAnalogIn.h"
-
-/* LAB COMPUTER COMPILER */
 //#include "telemetry/server-cpp/telemetry.h"
 //#include "telemetry/server-cpp/telemetry-mbed.h"
 
-MODSERIAL telemetry_serial (PTA2, PTA1);
+//Serial serial(USBTX, USBRX);
 
-DigitalIn attempt_2(PTE21);
-DigitalIn attempt_3(PTE22);
-
-DigitalOut DIGITAL_LOW(PTE5);
-DigitalOut DIGITAL_HIGH(PTE4);
+//MODSERIAL telemetry_serial (PTA2, PTA1) ;
+Serial bluetooth(PTA2, PTA1);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 DigitalOut led_blue(LED_BLUE);
 Ticker flipper;
 PwmOut servo(PTA12);
-PwmOut motor_left(PTD4); // IN_LS1
-PwmOut brake_left(PTA4); // IN_HS1
+PwmOut motor(PTD4); // IN_LS1
+PwmOut IN_HS1(PTA4);
 
-PwmOut motor_right(PTA5); // IN_LS2 
-PwmOut brake_right(PTC9); // IN_HS2
+PwmOut motor2(PTA5); // IN_LS2 
+PwmOut IN_HS2(PTC9);
 
-FastAnalogIn camera1(PTB3);  // First camera - Output from camera
+AnalogIn Aout(PTB3);  // First camera - Output from camera
 DigitalOut CLK(PTB11);
 DigitalOut SI(PTE2);
 DigitalIn encoder(PTD5); // Left
@@ -42,59 +32,18 @@ float convert_to_velocity(float period);
 void servoControl(int midpoint);
 void dynamicPERIOD();
 
-float target_velocity = 2.5f; // average time per phase we are targetting (in ms)
+float target_velocity = 8; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
-float servo_pwm;
-uint16_t linescan_buffer[128];
-uint16_t track_buffer[128];
-uint16_t low_pass_filter[128];
-uint16_t high_pass_filter[127];
-uint16_t normalized_buffer[128];
-
-float low_pwm = 0.21f;
-float high_pwm = 0.24f;
-float kill_pwm = 0.0f;
-float differential_turning = .045f;
-
-float k_p = 1.0f;
-int turning_threshold = 25;
-int servo_update_ms = 16;
-
-int midpoint;
-int midpoint_prev1;
-int midpoint_prev2;
-
-int min_index_hold;
-int max_index_hold;
-int min_value_hold;
-int max_value_hold;
-int integrating_hold;
-bool left_edge_hold;
-bool right_edge_hold;
-bool finish_line = false;
-
-uint16_t killswitch = 0;
-
+float buffer[128];
 float exposure = 0;
-float camera_normalization[128] = {25,35,37,44,51,56,58,60,66,69,
-                                   71,73,77,79,81,83,86,87,89,91,
-                                   93,93,95,96,97,97,97,98,99,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,100,100,100,100,100,100,100,100,
-                                   100,100,99,99,98,97,95,94,93,92,
-                                   91,90,89,87,85,84,82,80,79,77,
-                                   76,75,75,75,74,73,72,70,68,64,
-                                   57,53,44,42,37,31,24,22};
+
 const int LEFTMOTOR = 0;
 const int RIGHTMOTOR = 1;
-const float CENTER = 0.078f;
+const float CENTER = 0.075f;
 const float LEFT = 0.096f;
 const float RIGHT = 0.06f;
 float current_velocity;
+int midpoint = 55;
 int buffer_pointer;
 int PERIOD = 1;
 
@@ -102,13 +51,13 @@ void motorControl(int LeftOrRight, float speed)
 {
     if(LeftOrRight == LEFTMOTOR) // left
     {
-        motor_left.write(speed);
-        brake_left.write(0.0f);
+        motor.write(speed);
+        IN_HS1.write(0.0f);
     }
     else
     {
-        motor_right.write(speed);
-        brake_right.write(0.0f);
+        motor2.write(speed);
+        IN_HS2.write(0.0f);
     }
 }
 
@@ -116,7 +65,7 @@ void feedback_loop(float current_average){
     current_velocity = convert_to_velocity(current_average);
     float error = target_velocity - current_velocity;
     error = error / 10 ;
-    float k_const = 0.3f;
+    float k_const = 0.03f;
     motor_pwm = k_const * error + motor_pwm;
     if(motor_pwm >= .3f){
         motor_pwm = .3f;
@@ -124,6 +73,8 @@ void feedback_loop(float current_average){
     else if(motor_pwm < 0.0f){
         motor_pwm = .01f;
     }
+    
+    //motor.write(motor_pwm);
     motorControl(LEFTMOTOR, motor_pwm);
     motorControl(RIGHTMOTOR, motor_pwm);
 }
@@ -133,217 +84,160 @@ float convert_to_velocity(float period) { // s / rev
     return circ / period;
 }
 
-void speed_control(void const *args){
+void speed_control(Timer timer){
     Timer t;
-    float buffer[6]; // = {0,0,0,0,0,0};
+    float buffer[18]; // = {0,0,0,0,0,0};
     buffer_pointer = 0;
     int state = -1;
-    while(1) {
-              // if it stopped
-        if(t.read_ms() > 200){
-            // set speed to be 0.1f if it is completely stopped
-            motorControl(LEFTMOTOR, 0.1f);
-            motorControl(RIGHTMOTOR, 0.1f);
-            t.reset();
-        }
+    //motor.write(motor_pwm);
+    //motorControl(LEFTMOTOR, motor_pwm);
+    //motorControl(RIGHTMOTOR, motor_pwm);
+    current_velocity = -1; //testing
+    while(timer.read_ms() < 16) {
         // Initialize state & start timer
         if (state == -1){
             state = encoder;
             t.start();
         }
-
+        // if it stopped
+        else if(t.read_ms() > 1602){
+            
+            t.reset();
+        }
         else if(encoder != state){
             buffer[buffer_pointer] = t.read_us();
             buffer_pointer++;
             state = encoder;
+            current_velocity = -3;
             t.reset();
         }
-        if (buffer_pointer == 6){
-            float avg = buffer[0] + buffer[1] + buffer[2] + buffer[3] + buffer[4] + buffer[5];
+        if (buffer_pointer >= 11){
+            current_velocity = -2;
+            float avg = ((buffer[0] + buffer[1] + buffer[2] + buffer[3] + buffer[4] + buffer[5] + buffer[6] + buffer[7] + buffer[8] + buffer[9] + buffer[10] + buffer[11])/2);
             feedback_loop(avg/1000000); //convert us to seconds.
             buffer_pointer = 0;
             t.reset();
         }
     }
 }
-
-
-void mainControl()
-{
-    PERIOD = 1; // us
+void mainControl(){
+    // Minimum intergartion time will be
+    // T = (1/maximum clk) * (n - 18) pixels
+    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
+    PERIOD = 25; // us
+    //const int SIZE = 128;
+    const int INTEGRATIONTIME = 500;
     int MAXT = 129;
     int integrating = 0; 
     int i = 0;
+    float new_buffer[128];
+    float moving_average[128];
     Timer t;
     t.start();
     CLK = 0;
+    
     t.reset();
-
-    float max_value = -65535, min_value = 65535;
-    int max_index = 0, min_index = 0;
-
-    int bias = 32768;
-
     while(1)
     {
         // From checking
-        max_value = -65535, min_value = 65535;
-        max_index = 0, min_index = 0;
-
+        float maxValue = 0, minValue = 128;
+        int maxIndex = 0, minIndex = 0;
+        
         CLK = 0;
         SI = integrating == 0; 
-        //wait_us(PERIOD);
+        wait_us(PERIOD);        
         
         CLK = 1;
-        //wait_us(PERIOD);
+        wait_us(PERIOD);
         SI = 0;
-        ++integrating;
+        integrating++;
 
         // We are integrating
         if(integrating < MAXT)
         {
-            linescan_buffer[i] = (uint16_t)((float)camera1 * 65535);
-            ++i;
+            buffer[i] = Aout;
+            i++;
         }
         else if(integrating == MAXT)
-        {   
-            // Normalize Camera Data 
-            for (int j = 0; j < 128; ++j) {
-                if((linescan_buffer[j] * (100.0f/camera_normalization[j])) > 65535){
-                    normalized_buffer[j] = 65535;
+        {
+            
+            for (int k = 1; k < 125; ++k) {
+                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+            }
+            for (int j = 1; j < 125; ++j) {
+                new_buffer[j] = moving_average[j] - moving_average[j-1];
+            }
+            
+            for (int i = 5; i < 123; ++i) {
+                if (new_buffer[i] > maxValue) {
+                    maxValue = new_buffer[i];
+                    maxIndex = i;
                 }
-                else{
-                    normalized_buffer[j] = linescan_buffer[j] * (100.0f/camera_normalization[j]);
+            }
+            for (int i = maxIndex; i < 123; ++i) {
+                if (new_buffer[i] < minValue){
+                    minValue = new_buffer[i];
+                    minIndex = i;
                 }
             }
             
-            // Low Pass Filter
-            for (int k = 0; k < 128; ++k) {
-                if(k > 0 && k < 127){
-                    low_pass_filter[k] = (1.0f/3.0f) * (normalized_buffer[k-1] + normalized_buffer[k] + normalized_buffer[k+1]);
-                }
-                else if(k == 0){
-                    low_pass_filter[k] = (1.0f/2.0f) * (normalized_buffer[k] + normalized_buffer[k+1]);
-                }
-                else if(k == 127){
-                    low_pass_filter[k] = (1.0f/2.0f) * (normalized_buffer[k-1] + normalized_buffer[k]);
-                }
-            }
-            
-            // High Pass Filter
-            for (int j = 0; j < 127; ++j) {
-                high_pass_filter[j] = ((low_pass_filter[j]/2) - (low_pass_filter[j+1]/2)) + bias;
-            }
-        
-            // After high pass, PIXEL 63 is now center.
-            
-            for (int j = 6; j < 122; ++j) {
-                if ((high_pass_filter[j] - bias) < min_value){
-                    min_value = high_pass_filter[j] - bias;
-                    min_index = j;
-                }
-            }
-
-            for (int j = min_index; j < 122; ++j) {
-                if ((high_pass_filter[j] - bias) > max_value){
-                    max_value = high_pass_filter[j] - bias;
-                    max_index = j;
-                }
-            }
-
-            int change = midpoint - (max_index + min_index)/2;
-            change = change > 0 ? change : -change;
+            int change = midpoint - (maxIndex + minIndex)/2;
+            change = change > 0? change : -change;
             const int WIDTH = 20;
-
-            if(change < 60 && (min_index - max_index) < WIDTH && min_value < 0 && max_value > 0){
-                midpoint = (max_index + min_index)/2;
+            
+          if(change < 60 && (minIndex - maxIndex) < WIDTH)
+            {
+                midpoint = (maxIndex + minIndex) / 2;
             }
-            else{
-                // Midpoint not found
-                // midpoint = midpoint_prev1 * 2 - midpoint_prev2;
+            else
+            {
+                // mid is not found
+                //midpoint = mid1 + (mid1 - mid2);
+                //midpoint = midpoint;
             }
-                    
-            midpoint_prev2 = midpoint_prev1;
-            midpoint_prev1 = midpoint;
-
-            min_value_hold = min_value - bias;
-            max_value_hold = max_value - bias;
-            min_index_hold = min_index;
-            max_index_hold = max_index;
-
             servoControl(midpoint);
+            //Speed control;
+
+            /*
+            else if(integrating > MAXT)
+            {
+                
+                TOTALVAL = 0.0f;
+                for(int i = 0; i < 128; i++)
+                {
+                    TOTALVAL += buffer[i];
+                }
+                exposure = TOTALVAL / 128;
+                
+                
+                //0.18 = nice one in the room with PERIOD = 25
+                //0.38 = acceptable camera is still working PERIOD = 25
+                //0.5 = a bit saturated. Camera is working but wheel is kinda working PERIOD = 25
+                //> after 0.001 it is not working properly.
+                
+                
+                // For the testing purpose, I will adjust period in bluetooth module
+            }
+            */
         }
-        if(t.read_ms() >= servo_update_ms)//integrating > INTEGRATIONTIME)
-        {   
+        
+        if(t.read_ms() >= 16) //integrating > INTEGRATIONTIME
+        {
             t.reset();
             integrating = 0;
             i = 0;
-        }
+        }       
     }
 }
-/*
-    There are 128 possible mid points (prefer 100)
-    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
-    PWM 0.03 / 128 = 0.00234375
-*/
+
+
 void servoControl(int midpoint)
 {
-    // Assume the center is 64 (1 to 127 pixels)
-    int center = 64;
-    const float UNIT = 0.03f / 116;
+    // Assume the cneter is 55
+    int center = 58;
+    float k_p = .9f;
+    const float UNIT = 0.036f / 118;
     float change;
-    
-    /* If we are far away from the mid point we can:
-    1) Incrase kp
-    2) decrease speed
-    
-    If we are on the track
-    1) kp = 1
-    2) increase speed
-    */
-
-    if(killswitch != 0){
-        low_pwm = kill_pwm;
-        high_pwm = kill_pwm;
-    }
-    else{
-        low_pwm = low_pwm;
-        high_pwm = high_pwm;
-    }
-       
-    if(midpoint < center)
-    {
-        // RIGHT TURN
-        if(center - midpoint > turning_threshold)
-        {
-            motor_pwm = low_pwm;
-            motor_left.write(motor_pwm + differential_turning); // Assume we are feeding constant velocity
-            motor_right.write(motor_pwm);
-        }
-        else
-        {
-            motor_pwm = high_pwm;
-            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
-            motor_right.write(motor_pwm);
-        }
-    }
-    else
-    {
-        // LEFT TURN
-        if(midpoint - center > turning_threshold)
-        {
-            motor_pwm = low_pwm;
-            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
-            motor_right.write(motor_pwm + differential_turning);
-        }
-        else
-        {
-            motor_pwm = high_pwm;
-            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
-            motor_right.write(motor_pwm);
-        }
-    }
-        
     if(midpoint < center)
     {
         change = -UNIT * (center - midpoint) * k_p;
@@ -356,34 +250,303 @@ void servoControl(int midpoint)
     // Ensure we don't go past servo limits
     if((change + CENTER) > LEFT)
     {
-        servo_pwm = LEFT;
-        servo.write(servo_pwm);
+        servo.write(LEFT);
     }
     else if((change + CENTER) < RIGHT)
     {
-        servo_pwm = RIGHT;
-        servo.write(servo_pwm);
+        servo.write(RIGHT);
     }
     else
     {
-        servo_pwm = CENTER + change;
-        servo.write(servo_pwm);
+        servo.write(CENTER + change);
     }
 }
 
 
-void BlueSMiRF(void const *args)
-{
-    telemetry_serial.format();
-    telemetry_serial.baud(115200);
-    Thread::wait(10000);
+void race(){
+    // Minimum intergartion time will be
+    // T = (1/maximum clk) * (n - 18) pixels
+    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
+    PERIOD = 1; // us
+    //const int SIZE = 128;
+    const int INTEGRATIONTIME = 500  ;
+    int MAXT = 129;
+    int integrating = 0; 
+    int i = 0;
+    int counter = 0;
+    float new_buffer[128];
+    float moving_average[128];
+    float TOTALVAL = 0.0f;
+    Timer t;
+    t.start();
+    CLK = 0;
     
-    telemetry_serial.printf("CONNECTED\r\n");
+    t.reset();
     while(1)
     {
-        if(telemetry_serial.writeable())
+        // From checking
+        float maxValue = 0, minValue = 128;
+        
+        int maxIndex = 0, minIndex = 0;
+        
+        CLK = 0;
+        SI = integrating == 0; 
+        wait_us(PERIOD);
+        
+        CLK = 1;
+        wait_us(PERIOD);
+        SI = 0;
+        integrating++;
+
+        // We are integrating
+        if(integrating < MAXT)
         {
-            telemetry_serial.printf("Midpoint: %d\r\n", midpoint);
+            buffer[i] = Aout;
+            TOTALVAL += buffer[i];
+            i++;
+        }
+        else if(integrating == MAXT)
+        {
+            
+            for (int k = 1; k < 125; ++k) {
+                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+            }
+            for (int j = 1; j < 125; ++j) {
+                new_buffer[j] = moving_average[j] - moving_average[j-1];
+            }
+            
+            for (int i = 10; i < 120; ++i) {
+                if (new_buffer[i] > maxValue) {
+                    maxValue = new_buffer[i];
+                    maxIndex = i;
+                }
+            }
+            for (int i = maxIndex; i < 120; ++i) {
+                if (new_buffer[i] < minValue){
+                    minValue = new_buffer[i];
+                    minIndex = i;
+                }
+            }
+            
+            int change = midpoint - (maxIndex + minIndex)/2;
+            change = change > 0? change : -change;
+            const int WIDTH = 20;
+            
+          if(change < 40 && (minIndex - maxIndex) < WIDTH)
+            {
+                midpoint = (maxIndex + minIndex) / 2;
+            }
+            else
+            {
+                // mid is not found
+            }
+            
+            exposure = TOTALVAL / 128.0f;
+            TOTALVAL = 0.0f;            
+            
+            integrating = 0;
+            i = 0;
+        }
+        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
+        {   
+            servoControl_race(midpoint);
+            t.reset();
+        }
+    }
+}
+/*
+    There are 128 possible mid points (prefer 100)
+    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
+    PWM 0.03 / 128 = 0.00234375
+*/
+void servoControl_race(int midpoint)
+{
+    
+    // Assume the cneter is 55
+    int center = 55;
+    float k_p = 0.9f;
+    const float UNIT = 0.03f / 100;
+    float change;
+    if(midpoint < center)
+    {
+        change = -UNIT * (center - midpoint) * k_p;
+    }
+    else
+    {
+        change = -UNIT * (center - midpoint) * k_p;
+    }
+    
+    // Ensure we don't go past servo limits
+    if((change + CENTER) > LEFT)
+    {
+        servo.write(LEFT);
+    }
+    else if((change + CENTER) < RIGHT)
+    {
+        servo.write(RIGHT);
+    }
+    else
+    {
+        servo.write(CENTER + change);
+    }
+}
+
+
+
+void freescale()
+{
+    // Minimum intergartion time will be
+    // T = (1/maximum clk) * (n - 18) pixels
+    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
+    PERIOD = 1; // us
+    //const int SIZE = 128;
+    const int INTEGRATIONTIME = 500;
+    int MAXT = 129;
+    int integrating = 0; 
+    int i = 0;
+    int counter = 0;
+    float new_buffer[128];
+    float moving_average[128];
+    float TOTALVAL = 0.0f;
+    Timer t;
+    t.start();
+    CLK = 0;
+    
+    t.reset();
+    while(1)
+    {
+        // From checking
+        float maxValue = 0, minValue = 128;
+        
+        int maxIndex = 0, minIndex = 0;
+        
+        float highestValue = 0.0f;
+        int highestValueIndex = 0;
+        
+        
+        CLK = 0;
+        SI = integrating == 0; 
+        wait_us(PERIOD);
+        
+        CLK = 1;
+        wait_us(PERIOD);
+        SI = 0;
+        integrating++;
+
+        // We are integrating
+        if(integrating < MAXT)
+        {
+            buffer[i] = Aout;
+            i++;
+        }
+        else if(integrating == MAXT)
+        {
+            // Low pass filter
+            for (int k = 1; k < 125; ++k) {
+                // To find the track
+                if(k > 18 && buffer[k] > highestValue)
+                {
+                    highestValueIndex = k;
+                }
+                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
+            }
+            // High pass
+            for (int j = 1; j < 125; ++j) {
+                new_buffer[j] = moving_average[j] - moving_average[j-1];
+            }
+            
+            // After highpass, we will have one high pass, and one low value
+            for (int i = 5; i < 123; ++i) {
+                if (new_buffer[i] > maxValue) {
+                    maxValue = new_buffer[i];
+                    maxIndex = i;
+                }
+            }   
+            for (int i = maxIndex; i < 123; ++i) {
+                if (new_buffer[i] < minValue){
+                    minValue = new_buffer[i];
+                    minIndex = i;
+                }
+            }
+            // This constact MUST be changed.
+            int change = midpoint - (maxIndex + minIndex)/2;
+            change = change > 0? change : -change;
+            const int WIDTH_MIN = 20;
+            const int WIDTH_MAX = 100;
+          if(change < 40 && ((minIndex - maxIndex) > WIDTH_MIN) && (minIndex - maxIndex <WIDTH_MAX))
+            {
+                midpoint = (maxIndex + minIndex) / 2;
+            }
+            else
+            {
+                // mid is not found
+            }
+        }
+        // Period is 2 us
+        // We are collecting data 128 times which is total integration time to be 256 us.
+        // We can either collecting more data but we are not doing ot right now
+        // Anyway, we update the servo at every 256 us * 80 = 20.48 ms to be safe 
+        // between 60 ~ 70
+        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
+        {   
+            t.reset();
+            integrating = 0;
+            i = 0;
+            servoControl_race(midpoint);
+        }
+    }
+}
+/*
+    There are 128 possible mid points (prefer 100)
+    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
+    PWM 0.03 / 128 = 0.00234375
+*/
+void servoControl_freescale(int midpoint)
+{
+    // Assume the cneter is 55
+    int center = 58;
+    float k_p = 0.6f;
+    const float UNIT = 0.03f / 115;
+    float change;
+    if(midpoint < center)
+    {
+        change = -UNIT * (center - midpoint) * k_p;
+    }
+    else
+    {
+        change = -UNIT * (center - midpoint) * k_p;
+    }
+    
+    // Ensure we don't go past servo limits
+    if((change + CENTER) > LEFT)
+    {
+        servo.write(LEFT);
+    }
+    else if((change + CENTER) < RIGHT)
+    {
+        servo.write(RIGHT);
+    }
+    else
+    {
+        servo.write(CENTER + change);
+    }
+}
+
+
+
+void BlueSMiRF(void const *args)
+{
+    Thread::wait(10000);
+    Timer t;
+    float PWM = 0.2f;
+    bluetooth.printf("CONNECTED\r\n");
+    while(1)
+    {
+        
+        if(bluetooth.writeable())
+        {
+            bluetooth.printf("%d\r\n", midpoint);
+    
         }
         
         Thread::wait(100);
@@ -391,197 +554,29 @@ void BlueSMiRF(void const *args)
 }
 
 
-void telemetry_thread(void const *args){
-    //telemetry_serial.format();
-    telemetry_serial.baud(115200);
-    telemetry_serial.printf("CONNECTED\r\n");
-    
-    telemetry::MbedHal telemetry_hal(telemetry_serial);
-    telemetry::Telemetry telemetry_obj(telemetry_hal);
-    
-    telemetry::Numeric<uint32_t> tele_time_ms(telemetry_obj, "time", "Time", "ms", 0);
-    //telemetry::NumericArray<uint16_t, 128> tele_linescan(telemetry_obj, "linescan", "Linescan", "ADC", 0);
-    //telemetry::NumericArray<uint8_t, 128> tele_linescan_2(telemetry_obj, "linescan_2", "Linescan", "ADC", 0);
-    // telemetry::NumericArray<uint16_t, 128> tele_normalized(telemetry_obj, "normalized_buffer", "Normalized Linescan", "ADC", 0);
-    //telemetry::NumericArray<uint8_t, 128> tele_normalized_2(telemetry_obj, "normalized_buffer_2", "Normalized Linescan 8bit", "ADC", 0);  
-    //telemetry::NumericArray<uint16_t, 128> tele_low_pass(telemetry_obj, "low_pass_filter", "Low Pass Filter", "ADC", 0);
-    //telemetry::NumericArray<uint16_t, 127> tele_high_pass(telemetry_obj, "high_pass_filter", "High Pass Filter", "ADC", 0);
-    telemetry::Numeric<uint16_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
-    telemetry::Numeric<float> tele_motor_pwm(telemetry_obj, "motor_pwm", "Motor PWM", "pwm", 0);
-    //telemetry::Numeric<float> tele_servo_pwm(telemetry_obj, "servo_pwm", "Servo PWM", "pwm", 0);
-    telemetry::Numeric<float> tele_low_pwm(telemetry_obj, "pwm", "Low PWM", "adc", 0);
-    telemetry::Numeric<float> tele_high_pwm(telemetry_obj, "pwm", "High PWM", "adc", 0);
-    telemetry::Numeric<float> tele_k(telemetry_obj, "k", "K Constant", "float", 0);
-    telemetry::Numeric<float> tele_differential(telemetry_obj, "differential_turning", "Differential Turning", "float", 0);
-    telemetry::Numeric<uint32_t> tele_turning(telemetry_obj, "turning_threshold", "Turning Threshold", "int", 0);
-    // telemetry::Numeric<uint32_t> tele_threshold(telemetry_obj, "threshold", "High Pass Threshold", "int", 0);
-    // telemetry::Numeric<uint16_t> tele_min_index(telemetry_obj, "min_index", "Min Index", "index", 0);
-    // telemetry::Numeric<uint16_t> tele_max_index(telemetry_obj, "max_index", "Max Index", "index", 0);
-    // telemetry::Numeric<uint16_t> tele_camera_integration(telemetry_obj, "camera_integration_ms", "Camera Integration Time", "ms", 0);
-    // telemetry::Numeric<uint16_t> tele_integration_time(telemetry_obj, "integrating", "Integration Time", "cycles", 0);
-    telemetry::Numeric<uint16_t> tele_killswitch(telemetry_obj, "killswitch", "Killswitch", "1/0", 0);
-
-    telemetry_obj.transmit_header();
-    
-    Timer timer;
-    timer.start();
-    int start = timer.read_ms();
-    
-    tele_low_pwm = low_pwm;
-    tele_high_pwm = high_pwm;
-    tele_motor_pwm = motor_pwm;
-    //tele_servo_pwm = servo_pwm;
-    tele_k = k_p;
-    tele_turning = turning_threshold;
-    tele_differential = differential_turning;
-
-    telemetry_obj.do_io();
-    Thread::wait(100);
-    
-    // Continuously Gather Data
-    while(1){
-        tele_time_ms = timer.read_ms() - start;
-        
-        /*
-        for (int i = 0; i < 128; ++i){
-            tele_linescan[i] = linescan_buffer[i];
-        }
-        */
-
-        /* 8bit linescan
-        for (int i = 0; i < 128; ++i){
-            tele_linescan_2[i] = (uint8_t)(linescan_buffer[i] * 255);
-        }
-        
-        for (int i = 0; i < 128; ++i){
-            if((tele_linescan_2[i] * (100.0f/camera_normalization[i])) > 255){
-                tele_normalized_2[i] = 255;
-            }
-            else{
-                tele_normalized_2[i] = tele_linescan_2[i] * (100.0f/camera_normalization[i]);
-            }
-        }
-        */
-                
-                /*
-        for (int i = 0; i < 128; ++i){
-            tele_normalized[i] = normalized_buffer[i];
-        }
-        */
-
-        /*
-        for (int i = 0; i < 128; ++i){
-            tele_low_pass[i] = low_pass_filter[i];
-        } */        
-        
-        /*
-        for (int i = 0; i < 127; ++i){
-            tele_high_pass[i] = high_pass_filter[i];
-        } 
-        */
-
-        tele_midpoint = midpoint;
-        // tele_min_index = min_index_hold;
-        // tele_max_index = max_index_hold;
-
-        /*
-        for (int i = 0; i < 128; ++i){
-            tele_normalized[i] = normalized_buffer[i];
-        }
-
-        for (int i = 0; i < 128; ++i){
-            tele_normalized_2[i] = normalized_buffer_2[i];
-        }
-        */
-
-        tele_low_pwm = low_pwm;
-        tele_high_pwm = high_pwm;
-        tele_motor_pwm = motor_pwm;
-        //tele_servo_pwm = servo_pwm;
-        tele_turning = turning_threshold;
-        tele_k = k_p;
-        tele_differential = differential_turning;
-
-        // tele_camera_integration = camera_integration_ms;
-        // tele_integration_time = integrating_hold;
-
-        tele_killswitch = killswitch;
-        
-        telemetry_obj.do_io();
-
-        killswitch = tele_killswitch;
-        
-        low_pwm = tele_low_pwm;
-        high_pwm = tele_high_pwm;
-        turning_threshold = tele_turning;
-        k_p = tele_k;
-        differential_turning = tele_differential;
-
-        // camera_integration_ms = tele_camera_integration;
-                
-        Thread::wait(300);
-    }
-}
-
 int main() {
-    telemetry_serial.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
-    telemetry_serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
+  bluetooth.printf("--- Team 7 (Quinn, Byung, Frank), EE 192 ---\r\n");
+    bluetooth.printf("Built " __DATE__ " " __TIME__ "\r\n");  
     
     wait(2);
-    DIGITAL_LOW.write(0);
-    DIGITAL_HIGH.write(1);
-    led_blue.write(0);
-    led_red.write(0);
-    led_green.write(0);
-
-    if(!attempt_2.read()){ // YELLOW LIGHT -- SUB-OPTIMAL CASE
-        led_blue.write(1); 
-
-        // .39s
-        low_pwm = 0.42f;
-        high_pwm = 0.345f;
-        differential_turning = 0.0f;
-        k_p = 1.5f;
-        turning_threshold = 24;
-        servo_update_ms = 16;
-    }
-    else if(!attempt_3.read()){
-        led_red.write(1); // CYAN LIGHT -- SAFETY CASE
-
-                low_pwm = .3f;
-                high_pwm = .3f;
-                differential_turning = 0.0f;
-                k_p = 1.5f;
-                turning_threshold = 24;
-                servo_update_ms = 16;
-    }
-    else{
-        led_green.write(1); // PURPLE LIGHT -- BEST CASE
-
-        // 38 sec
-        low_pwm = 0.48f;
-        high_pwm = 0.39f;
-        differential_turning = 0.0f;
-        k_p = 1.5f;
-        turning_threshold = 24;
-        servo_update_ms = 16;
-    }
+    
     
     // Initializing
+    bluetooth.format();
+    bluetooth.baud(115200);
     servo.period(.02f);
     servo.write(0.075f);    
-    motor_left.period(.001f);
-    brake_left.period(.001f);
-    motor_left.write(low_pwm); // Assume we are feeding constant velocity
-    brake_left.write(0.0f);
-    motor_right.period(0.001f);
-    brake_right.period(0.001f);
-    motor_right.write(low_pwm);
-    brake_right.write(0.0f);
-    //Thread bThread(BlueSMiRF);
-    Thread teleThread(telemetry_thread);
-    mainControl();
+    motor.period(.001f);
+    IN_HS1.period(.001f);
+    motor.write(0.39f); // Assume we are fee8ding constant velocity
+    IN_HS1.write(0.0f);
+    motor2.period(0.001f);
+    IN_HS2.period(0.001f);
+    motor2.write(0.39f);
+    IN_HS2.write(0.0f);
+    Thread bThread(BlueSMiRF);
     
-    //Thread speed(speed_control);
+    mainControl();
     //freescale();
+    
 }
