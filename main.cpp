@@ -5,6 +5,7 @@
 // ONLINE COMPILER
 #include "telemetry.h"
 #include "telemetry-mbed.h"
+#include "FastAnalogIn.h"
 
 /* LAB COMPUTER COMPILER */
 //#include "telemetry/server-cpp/telemetry.h"
@@ -12,12 +13,11 @@
 
 MODSERIAL telemetry_serial (PTA2, PTA1);
 
-DigitalIn attempt_1(PTE20);
 DigitalIn attempt_2(PTE21);
 DigitalIn attempt_3(PTE22);
 
-DigitalOut FUCK_THIS(PTE5);
-DigitalOut AWWW_YEAH(PTE4);
+DigitalOut DIGITAL_LOW(PTE5);
+DigitalOut DIGITAL_HIGH(PTE4);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
@@ -30,7 +30,7 @@ PwmOut brake_left(PTA4); // IN_HS1
 PwmOut motor_right(PTA5); // IN_LS2 
 PwmOut brake_right(PTC9); // IN_HS2
 
-AnalogIn camera1(PTB3);  // First camera - Output from camera
+FastAnalogIn camera1(PTB3);  // First camera - Output from camera
 DigitalOut CLK(PTB11);
 DigitalOut SI(PTE2);
 DigitalIn encoder(PTD5); // Left
@@ -44,6 +44,7 @@ void dynamicPERIOD();
 
 float target_velocity = 2.5f; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
+float servo_pwm;
 uint16_t linescan_buffer[128];
 uint16_t track_buffer[128];
 uint16_t low_pass_filter[128];
@@ -52,11 +53,11 @@ uint16_t normalized_buffer[128];
 
 float low_pwm = 0.21f;
 float high_pwm = 0.24f;
-float differtial_turning = .045f;
+float kill_pwm = 0.0f;
+float differential_turning = .045f;
 
 float k_p = 1.0f;
 int turning_threshold = 25;
-int threshold = 1200*2;
 int servo_update_ms = 16;
 
 int midpoint;
@@ -67,9 +68,12 @@ int min_index_hold;
 int max_index_hold;
 int min_value_hold;
 int max_value_hold;
+int integrating_hold;
 bool left_edge_hold;
 bool right_edge_hold;
 bool finish_line = false;
+
+uint16_t killswitch = 0;
 
 float exposure = 0;
 float camera_normalization[128] = {25,35,37,44,51,56,58,60,66,69,
@@ -164,7 +168,7 @@ void speed_control(void const *args){
 }
 
 
-void freescale()
+void mainControl()
 {
     PERIOD = 1; // us
     int MAXT = 129;
@@ -174,24 +178,18 @@ void freescale()
     t.start();
     CLK = 0;
     t.reset();
-    int min_value = 65535;
-    int max_value = 0;
-    int min_index = 0;
-    int max_index = 0;
-    threshold = 1200*2;
+
+    float max_value = -65535, min_value = 65535;
+    int max_index = 0, min_index = 0;
+
     int bias = 32768;
-    bool left_edge = false;
-    bool right_edge = false;
 
-    int counter = 0;
-    int finish_line_counter = 0;
-
-    int local_min = 0;
-    int local_max = 0;
-    
     while(1)
     {
         // From checking
+        max_value = -65535, min_value = 65535;
+        max_index = 0, min_index = 0;
+
         CLK = 0;
         SI = integrating == 0; 
         //wait_us(PERIOD);
@@ -200,22 +198,6 @@ void freescale()
         //wait_us(PERIOD);
         SI = 0;
         ++integrating;
-
-        min_value = 65535;
-        max_value = 0;
-
-        min_index = 0;
-        max_index = 0;
-
-        left_edge = false;
-        right_edge = false;
-
-        counter = 0;
-        
-        finish_line_counter = 0;
-
-        local_max = 0;
-        local_min = 0;
 
         // We are integrating
         if(integrating < MAXT)
@@ -246,22 +228,7 @@ void freescale()
                 else if(k == 127){
                     low_pass_filter[k] = (1.0f/2.0f) * (normalized_buffer[k-1] + normalized_buffer[k]);
                 }
-                // if((low_pass_filter[k] > 4768) && (low_pass_filter[k] < 10768)){
-                //     counter += 1;
-                // }
-                // else{
-                //     if((counter >= 14) && (counter <= 20)){
-                //         finish_line_counter += 1;
-                //     }
-                //     counter = 0;
-                // }
             }
-
-            // if(finish_line_counter == 2){
-            //     finish_line = true;
-            //     low_pwm = 0.0f;
-            //     high_pwm = 0.0f;
-            //}
             
             // High Pass Filter
             for (int j = 0; j < 127; ++j) {
@@ -271,78 +238,29 @@ void freescale()
             // After high pass, PIXEL 63 is now center.
             
             for (int j = 6; j < 122; ++j) {
-                if (high_pass_filter[j] > max_value){
-                    max_value = high_pass_filter[j];
-                    max_index = j;
-                }
-                if (high_pass_filter[j] < min_value){
-                    min_value = high_pass_filter[j];
+                if ((high_pass_filter[j] - bias) < min_value){
+                    min_value = high_pass_filter[j] - bias;
                     min_index = j;
                 }
             }
 
-            //     //FINISH LINE CHECKING
-            //     if((high_pass_filter[j] > (bias + threshold)) && (high_pass_filter[j] > high_pass_filter[j+1]) && (high_pass_filter[j] > high_pass_filter[j-1])){
-            //         local_max += 1;
-            //     }
-            //     else if((high_pass_filter[j] < (bias - threshold)) && (high_pass_filter[j] < high_pass_filter[j+1]) && (high_pass_filter[j] < high_pass_filter[j-1])){
-            //         local_min += 1;
-            //     }
-            // }
-
-            // if (local_min == 3 && local_max == 3){
-            //     finish_line = true;
-            //     low_pwm = 0.0f;
-            //     high_pwm = 0.0f;
-            // }
-
-            // Doesn't account for crossings.
-            if (max_value > (bias + threshold)){
-                right_edge = true;
-            }
-
-            if (min_value < (bias - threshold)){
-                left_edge = true;
-            }
-            
-            if (right_edge && left_edge && (min_index > max_index))
-            {
-                // Found dying edge
-                if(min_index - max_index < 6)
-                {
-                    if(-min_value > max_value)
-                    {
-                        right_edge = false;
-                    }
-                    else
-                    {
-                        left_edge = false;
-                    }
+            for (int j = min_index; j < 122; ++j) {
+                if ((high_pass_filter[j] - bias) > max_value){
+                    max_value = high_pass_filter[j] - bias;
+                    max_index = j;
                 }
-                else
-                {
-                    // Do something more than invalidate the edge
-                    if(-min_value > max_value)
-                    {
-                        right_edge = false;
-                    }
-                    else
-                    {
-                        left_edge = false;
-                    }
-                }                
             }
-            if (left_edge && right_edge){
-                midpoint = (min_index + max_index)/2;
-            }
-            else if (left_edge){
-                midpoint = (min_index + 54);
-            }
-            else if (right_edge){
-                midpoint = (max_index - 54);
+
+            int change = midpoint - (max_index + min_index)/2;
+            change = change > 0 ? change : -change;
+            const int WIDTH = 20;
+
+            if(change < 60 && (min_index - max_index) < WIDTH && min_value < 0 && max_value > 0){
+                midpoint = (max_index + min_index)/2;
             }
             else{
-                midpoint = (midpoint_prev1 - midpoint_prev2) + midpoint_prev1;
+                // Midpoint not found
+                // midpoint = midpoint_prev1 * 2 - midpoint_prev2;
             }
                     
             midpoint_prev2 = midpoint_prev1;
@@ -352,9 +270,8 @@ void freescale()
             max_value_hold = max_value - bias;
             min_index_hold = min_index;
             max_index_hold = max_index;
-            left_edge_hold = left_edge;
-            right_edge_hold = right_edge;
-            servoControl_freescale(midpoint);
+
+            servoControl(midpoint);
         }
         if(t.read_ms() >= servo_update_ms)//integrating > INTEGRATIONTIME)
         {   
@@ -369,60 +286,63 @@ void freescale()
     Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
     PWM 0.03 / 128 = 0.00234375
 */
-void servoControl_freescale(int midpoint)
+void servoControl(int midpoint)
 {
     // Assume the center is 64 (1 to 127 pixels)
     int center = 64;
-    const float UNIT = 0.03f / 127;
+    const float UNIT = 0.03f / 116;
     float change;
-    if(midpoint < 0)
-    {
-        midpoint = 0;
+    
+    /* If we are far away from the mid point we can:
+    1) Incrase kp
+    2) decrease speed
+    
+    If we are on the track
+    1) kp = 1
+    2) increase speed
+    */
+
+    if(killswitch != 0){
+        low_pwm = kill_pwm;
+        high_pwm = kill_pwm;
     }
-    else if (midpoint > 128)
-    {
-        midpoint = 127;
+    else{
+        low_pwm = low_pwm;
+        high_pwm = high_pwm;
     }
-        
-        /* If we are far away from the mid point we can:
-        1) Incrase kp
-        2) decrease speed
-        
-        If we are write on the track
-        1) kp = 1
-        2) increase speed
-        
-        */
-        
-        if(midpoint < center)
+       
+    if(midpoint < center)
+    {
+        // RIGHT TURN
+        if(center - midpoint > turning_threshold)
         {
-            // RIGHT TURN
-            if(center - midpoint > turning_threshold)
-            {
-                motor_left.write(low_pwm + differtial_turning); // Assume we are feeding constant velocity
-                motor_right.write(low_pwm);
-            }
-            else
-            {
-                motor_left.write(high_pwm); // Assume we are feeding constant velocity
-                motor_right.write(high_pwm);
-            }
+            motor_pwm = low_pwm;
+            motor_left.write(motor_pwm + differential_turning); // Assume we are feeding constant velocity
+            motor_right.write(motor_pwm);
         }
         else
         {
-            if(midpoint - center > turning_threshold)
-            {
-                motor_left.write(low_pwm); // Assume we are feeding constant velocity
-                motor_right.write(low_pwm + differtial_turning);
-            }
-            else
-            {
-                motor_left.write(high_pwm); // Assume we are feeding constant velocity
-                motor_right.write(high_pwm);
-            }
+            motor_pwm = high_pwm;
+            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
+            motor_right.write(motor_pwm);
         }
-        
-        
+    }
+    else
+    {
+        // LEFT TURN
+        if(midpoint - center > turning_threshold)
+        {
+            motor_pwm = low_pwm;
+            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
+            motor_right.write(motor_pwm + differential_turning);
+        }
+        else
+        {
+            motor_pwm = high_pwm;
+            motor_left.write(motor_pwm); // Assume we are feeding constant velocity
+            motor_right.write(motor_pwm);
+        }
+    }
         
     if(midpoint < center)
     {
@@ -436,15 +356,18 @@ void servoControl_freescale(int midpoint)
     // Ensure we don't go past servo limits
     if((change + CENTER) > LEFT)
     {
-        servo.write(LEFT);
+        servo_pwm = LEFT;
+        servo.write(servo_pwm);
     }
     else if((change + CENTER) < RIGHT)
     {
-        servo.write(RIGHT);
+        servo_pwm = RIGHT;
+        servo.write(servo_pwm);
     }
     else
     {
-        servo.write(CENTER + change);
+        servo_pwm = CENTER + change;
+        servo.write(servo_pwm);
     }
 }
 
@@ -456,15 +379,15 @@ void BlueSMiRF(void const *args)
     Thread::wait(10000);
     
     telemetry_serial.printf("CONNECTED\r\n");
-    // while(1)
-    // {
-    //     if(telemetry_serial.writeable())
-    //     {
-            
-    //     }
+    while(1)
+    {
+        if(telemetry_serial.writeable())
+        {
+            telemetry_serial.printf("Midpoint: %d\r\n", midpoint);
+        }
         
-    //     Thread::wait(100);
-    // }
+        Thread::wait(100);
+    }
 }
 
 
@@ -477,21 +400,26 @@ void telemetry_thread(void const *args){
     telemetry::Telemetry telemetry_obj(telemetry_hal);
     
     telemetry::Numeric<uint32_t> tele_time_ms(telemetry_obj, "time", "Time", "ms", 0);
-    telemetry::NumericArray<uint16_t, 128> tele_linescan(telemetry_obj, "linescan", "Linescan", "ADC", 0);
+    //telemetry::NumericArray<uint16_t, 128> tele_linescan(telemetry_obj, "linescan", "Linescan", "ADC", 0);
     //telemetry::NumericArray<uint8_t, 128> tele_linescan_2(telemetry_obj, "linescan_2", "Linescan", "ADC", 0);
     // telemetry::NumericArray<uint16_t, 128> tele_normalized(telemetry_obj, "normalized_buffer", "Normalized Linescan", "ADC", 0);
     //telemetry::NumericArray<uint8_t, 128> tele_normalized_2(telemetry_obj, "normalized_buffer_2", "Normalized Linescan 8bit", "ADC", 0);  
     //telemetry::NumericArray<uint16_t, 128> tele_low_pass(telemetry_obj, "low_pass_filter", "Low Pass Filter", "ADC", 0);
     //telemetry::NumericArray<uint16_t, 127> tele_high_pass(telemetry_obj, "high_pass_filter", "High Pass Filter", "ADC", 0);
-    //telemetry::Numeric<float> tele_low_pwm(telemetry_obj, "pwm", "Low PWM", "adc", 0);
-    // telemetry::Numeric<float> tele_high_pwm(telemetry_obj, "pwm", "High PWM", "adc", 0);
-    // telemetry::Numeric<float> tele_k(telemetry_obj, "k", "K Constant", "float", 0);
-    // telemetry::Numeric<float> tele_differential(telemetry_obj, "differtial_turning", "Differential Turning", "float", 0);
-    // telemetry::Numeric<uint32_t> tele_turning(telemetry_obj, "turning_threshold", "Turning Threshold", "int", 0);
+    telemetry::Numeric<uint16_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
+    telemetry::Numeric<float> tele_motor_pwm(telemetry_obj, "motor_pwm", "Motor PWM", "pwm", 0);
+    //telemetry::Numeric<float> tele_servo_pwm(telemetry_obj, "servo_pwm", "Servo PWM", "pwm", 0);
+    telemetry::Numeric<float> tele_low_pwm(telemetry_obj, "pwm", "Low PWM", "adc", 0);
+    telemetry::Numeric<float> tele_high_pwm(telemetry_obj, "pwm", "High PWM", "adc", 0);
+    telemetry::Numeric<float> tele_k(telemetry_obj, "k", "K Constant", "float", 0);
+    telemetry::Numeric<float> tele_differential(telemetry_obj, "differential_turning", "Differential Turning", "float", 0);
+    telemetry::Numeric<uint32_t> tele_turning(telemetry_obj, "turning_threshold", "Turning Threshold", "int", 0);
     // telemetry::Numeric<uint32_t> tele_threshold(telemetry_obj, "threshold", "High Pass Threshold", "int", 0);
-    //telemetry::Numeric<uint16_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
-    //telemetry::Numeric<uint16_t> tele_min_index(telemetry_obj, "min_index", "Min Index", "index", 0);
-    //telemetry::Numeric<uint16_t> tele_max_index(telemetry_obj, "max_index", "Max Index", "index", 0);
+    // telemetry::Numeric<uint16_t> tele_min_index(telemetry_obj, "min_index", "Min Index", "index", 0);
+    // telemetry::Numeric<uint16_t> tele_max_index(telemetry_obj, "max_index", "Max Index", "index", 0);
+    // telemetry::Numeric<uint16_t> tele_camera_integration(telemetry_obj, "camera_integration_ms", "Camera Integration Time", "ms", 0);
+    // telemetry::Numeric<uint16_t> tele_integration_time(telemetry_obj, "integrating", "Integration Time", "cycles", 0);
+    telemetry::Numeric<uint16_t> tele_killswitch(telemetry_obj, "killswitch", "Killswitch", "1/0", 0);
 
     telemetry_obj.transmit_header();
     
@@ -499,14 +427,13 @@ void telemetry_thread(void const *args){
     timer.start();
     int start = timer.read_ms();
     
-    /* TUNING
     tele_low_pwm = low_pwm;
     tele_high_pwm = high_pwm;
+    tele_motor_pwm = motor_pwm;
+    //tele_servo_pwm = servo_pwm;
     tele_k = k_p;
     tele_turning = turning_threshold;
-    tele_threshold = threshold;
-    tele_differential = differtial_turning;
-    */
+    tele_differential = differential_turning;
 
     telemetry_obj.do_io();
     Thread::wait(100);
@@ -515,9 +442,11 @@ void telemetry_thread(void const *args){
     while(1){
         tele_time_ms = timer.read_ms() - start;
         
+        /*
         for (int i = 0; i < 128; ++i){
             tele_linescan[i] = linescan_buffer[i];
         }
+        */
 
         /* 8bit linescan
         for (int i = 0; i < 128; ++i){
@@ -544,16 +473,16 @@ void telemetry_thread(void const *args){
         for (int i = 0; i < 128; ++i){
             tele_low_pass[i] = low_pass_filter[i];
         } */        
-
-        // for (int i = 0; i < 127; ++i){
-        //     tele_high_pass[i] = high_pass_filter[i];
-        // } 
-
+        
         /*
-        tele_midpoint = midpoint;
-        tele_min_index = min_index;
-        tele_max_index = max_index;
+        for (int i = 0; i < 127; ++i){
+            tele_high_pass[i] = high_pass_filter[i];
+        } 
         */
+
+        tele_midpoint = midpoint;
+        // tele_min_index = min_index_hold;
+        // tele_max_index = max_index_hold;
 
         /*
         for (int i = 0; i < 128; ++i){
@@ -565,27 +494,32 @@ void telemetry_thread(void const *args){
         }
         */
 
-        /*
         tele_low_pwm = low_pwm;
         tele_high_pwm = high_pwm;
+        tele_motor_pwm = motor_pwm;
+        //tele_servo_pwm = servo_pwm;
         tele_turning = turning_threshold;
-        tele_threshold = threshold;
         tele_k = k_p;
-        tele_differential = differtial_turning;
-        */
+        tele_differential = differential_turning;
+
+        // tele_camera_integration = camera_integration_ms;
+        // tele_integration_time = integrating_hold;
+
+        tele_killswitch = killswitch;
         
         telemetry_obj.do_io();
+
+        killswitch = tele_killswitch;
         
-        /*
         low_pwm = tele_low_pwm;
         high_pwm = tele_high_pwm;
         turning_threshold = tele_turning;
-        threshold = tele_threshold;
         k_p = tele_k;
-        differtial_turning = tele_differential;
-        */
+        differential_turning = tele_differential;
+
+        // camera_integration_ms = tele_camera_integration;
                 
-        Thread::wait(200);
+        Thread::wait(300);
     }
 }
 
@@ -594,64 +528,43 @@ int main() {
     telemetry_serial.printf("Built " __DATE__ " " __TIME__ "\r\n");  
     
     wait(2);
-    FUCK_THIS.write(0);
-    AWWW_YEAH.write(1);
+    DIGITAL_LOW.write(0);
+    DIGITAL_HIGH.write(1);
     led_blue.write(0);
     led_red.write(0);
     led_green.write(0);
 
-    if(!attempt_1.read()){
-        led_green.write(1); // PURPLE LIGHT -- BEST CASE
-
-        /*
-        low_pwm = .27f;
-        high_pwm = .42f;
-        k_p = 1.5f;
-        turning_threshold = 25;
-        threshold = 2400;
-        servo_update_ms = 12;
-        */
-
-        low_pwm = .375f;
-        high_pwm = .351f;
-        differtial_turning = .06f;
-        k_p = 1.5f;
-        turning_threshold = 24;
-        threshold = 2400;
-        servo_update_ms = 12;
-    }
-    else if(!attempt_2.read()){ // YELLOW LIGHT -- SUB-OPTIMAL CASE
+    if(!attempt_2.read()){ // YELLOW LIGHT -- SUB-OPTIMAL CASE
         led_blue.write(1); 
 
-        low_pwm = .276f;
-        high_pwm = .345f;
-        differtial_turning = .048f;
+        // .39s
+        low_pwm = 0.42f;
+        high_pwm = 0.345f;
+        differential_turning = 0.0f;
         k_p = 1.5f;
         turning_threshold = 24;
-        threshold = 2400;
-        servo_update_ms = 12;
+        servo_update_ms = 16;
     }
     else if(!attempt_3.read()){
         led_red.write(1); // CYAN LIGHT -- SAFETY CASE
 
-        low_pwm = .20f;
-        high_pwm = .25f;
-        differtial_turning = 0.0f;
-        k_p = 1.0f;
-        turning_threshold = 25;
-        threshold = 2400;
-        servo_update_ms = 16;
+                low_pwm = .3f;
+                high_pwm = .3f;
+                differential_turning = 0.0f;
+                k_p = 1.5f;
+                turning_threshold = 24;
+                servo_update_ms = 16;
     }
     else{
         led_green.write(1); // PURPLE LIGHT -- BEST CASE
 
-        low_pwm = .375f;
-        high_pwm = .351f;
-        differtial_turning = .06f;
+        // 38 sec
+        low_pwm = 0.48f;
+        high_pwm = 0.39f;
+        differential_turning = 0.0f;
         k_p = 1.5f;
         turning_threshold = 24;
-        threshold = 2400;
-        servo_update_ms = 12;
+        servo_update_ms = 16;
     }
     
     // Initializing
@@ -667,8 +580,8 @@ int main() {
     brake_right.write(0.0f);
     //Thread bThread(BlueSMiRF);
     Thread teleThread(telemetry_thread);
-    //mainControl();
+    mainControl();
     
     //Thread speed(speed_control);
-    freescale();
+    //freescale();
 }
