@@ -46,6 +46,8 @@ float motor_pwm = 0.1f; // 0.07
 float servo_pwm;
 
 float linescan_buffer[128];
+float low_pass_filter[128];
+float high_pass_filter[128];
 
 float low_pwm = 0.21f;
 float high_pwm = 0.24f;
@@ -169,8 +171,6 @@ void mainControl()
     int MAXT = 129;
     int integrating = 0; 
     int i = 0;
-    float low_pass_filter[128];
-    float high_pass_filter[128];
     Timer t;
     t.start();
     CLK = 0;
@@ -386,7 +386,7 @@ void telemetry_thread(void const *args){
     // telemetry::NumericArray<uint16_t, 128> tele_normalized(telemetry_obj, "normalized_buffer", "Normalized Linescan", "ADC", 0);
     //telemetry::NumericArray<uint8_t, 128> tele_normalized_2(telemetry_obj, "normalized_buffer_2", "Normalized Linescan 8bit", "ADC", 0);  
     //telemetry::NumericArray<uint16_t, 128> tele_low_pass(telemetry_obj, "low_pass_filter", "Low Pass Filter", "ADC", 0);
-    //telemetry::NumericArray<uint16_t, 127> tele_high_pass(telemetry_obj, "high_pass_filter", "High Pass Filter", "ADC", 0);
+    telemetry::NumericArray<uint8_t, 128> tele_high_pass(telemetry_obj, "high_pass_filter", "High Pass Filter", "ADC", 0);
     telemetry::Numeric<uint8_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
     //telemetry::Numeric<float> tele_motor_pwm(telemetry_obj, "motor_pwm", "Motor PWM", "pwm", 0);
     //telemetry::Numeric<float> tele_servo_pwm(telemetry_obj, "servo_pwm", "Servo PWM", "pwm", 0);
@@ -424,6 +424,10 @@ void telemetry_thread(void const *args){
         
         for (int i = 0; i < 128; ++i){
             tele_linescan[i] = (uint8_t)(linescan_buffer[i] * 255);
+        }
+
+        for (int i = 5; i < 123; ++i){
+            tele_high_pass[i] = (uint8_t)(high_pass_filter[i] * 255);
         }
 
         /* 8bit linescan
@@ -497,7 +501,7 @@ void telemetry_thread(void const *args){
 
         // camera_integration_ms = tele_camera_integration;
                 
-        Thread::wait(36);
+        Thread::wait(48);
     }
 }
 
