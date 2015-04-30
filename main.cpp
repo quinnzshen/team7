@@ -9,6 +9,11 @@
 //MODSERIAL telemetry_serial (PTA2, PTA1) ;
 Serial bluetooth(PTA2, PTA1);
 
+DigitalIn attempt_2(PTE21);
+DigitalIn attempt_3(PTE22);
+
+DigitalOut DIGITAL_LOW(PTE5);
+
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 DigitalOut led_blue(LED_BLUE);
@@ -183,8 +188,8 @@ void mainControl(){
             
             int change = midpoint - (maxIndex + minIndex)/2;
             change = change > 0? change : -change;
-            const int WIDTH = 20;
-            
+            const int WIDTH = 9;
+            //const int MIN_WIDTH = 5;
           if(change < 60 && (minIndex - maxIndex) < WIDTH)
             {
                 midpoint = (maxIndex + minIndex) / 2;
@@ -221,7 +226,7 @@ void mainControl(){
             */
         }
         
-        if(t.read_ms() >= 16) //integrating > INTEGRATIONTIME
+        if(t.read_ms() >= 12) //integrating > INTEGRATIONTIME
         {
             t.reset();
             integrating = 0;
@@ -234,7 +239,7 @@ void mainControl(){
 void servoControl(int midpoint)
 {
     // Assume the cneter is 55
-    int center = 58;
+    int center = 69;
     float k_p = .9f;
     const float UNIT = 0.036f / 118;
     float change;
@@ -263,277 +268,6 @@ void servoControl(int midpoint)
 }
 
 
-void race(){
-    // Minimum intergartion time will be
-    // T = (1/maximum clk) * (n - 18) pixels
-    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
-    PERIOD = 1; // us
-    //const int SIZE = 128;
-    const int INTEGRATIONTIME = 500  ;
-    int MAXT = 129;
-    int integrating = 0; 
-    int i = 0;
-    int counter = 0;
-    float new_buffer[128];
-    float moving_average[128];
-    float TOTALVAL = 0.0f;
-    Timer t;
-    t.start();
-    CLK = 0;
-    
-    t.reset();
-    while(1)
-    {
-        // From checking
-        float maxValue = 0, minValue = 128;
-        
-        int maxIndex = 0, minIndex = 0;
-        
-        CLK = 0;
-        SI = integrating == 0; 
-        wait_us(PERIOD);
-        
-        CLK = 1;
-        wait_us(PERIOD);
-        SI = 0;
-        integrating++;
-
-        // We are integrating
-        if(integrating < MAXT)
-        {
-            buffer[i] = Aout;
-            TOTALVAL += buffer[i];
-            i++;
-        }
-        else if(integrating == MAXT)
-        {
-            
-            for (int k = 1; k < 125; ++k) {
-                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
-            }
-            for (int j = 1; j < 125; ++j) {
-                new_buffer[j] = moving_average[j] - moving_average[j-1];
-            }
-            
-            for (int i = 10; i < 120; ++i) {
-                if (new_buffer[i] > maxValue) {
-                    maxValue = new_buffer[i];
-                    maxIndex = i;
-                }
-            }
-            for (int i = maxIndex; i < 120; ++i) {
-                if (new_buffer[i] < minValue){
-                    minValue = new_buffer[i];
-                    minIndex = i;
-                }
-            }
-            
-            int change = midpoint - (maxIndex + minIndex)/2;
-            change = change > 0? change : -change;
-            const int WIDTH = 20;
-            
-          if(change < 40 && (minIndex - maxIndex) < WIDTH)
-            {
-                midpoint = (maxIndex + minIndex) / 2;
-            }
-            else
-            {
-                // mid is not found
-            }
-            
-            exposure = TOTALVAL / 128.0f;
-            TOTALVAL = 0.0f;            
-            
-            integrating = 0;
-            i = 0;
-        }
-        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
-        {   
-            servoControl_race(midpoint);
-            t.reset();
-        }
-    }
-}
-/*
-    There are 128 possible mid points (prefer 100)
-    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
-    PWM 0.03 / 128 = 0.00234375
-*/
-void servoControl_race(int midpoint)
-{
-    
-    // Assume the cneter is 55
-    int center = 55;
-    float k_p = 0.9f;
-    const float UNIT = 0.03f / 100;
-    float change;
-    if(midpoint < center)
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    else
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    
-    // Ensure we don't go past servo limits
-    if((change + CENTER) > LEFT)
-    {
-        servo.write(LEFT);
-    }
-    else if((change + CENTER) < RIGHT)
-    {
-        servo.write(RIGHT);
-    }
-    else
-    {
-        servo.write(CENTER + change);
-    }
-}
-
-
-
-void freescale()
-{
-    // Minimum intergartion time will be
-    // T = (1/maximum clk) * (n - 18) pixels
-    // Ex, for 8MHz, T = 0.125us * ( 128 - 18)  
-    PERIOD = 1; // us
-    //const int SIZE = 128;
-    const int INTEGRATIONTIME = 500;
-    int MAXT = 129;
-    int integrating = 0; 
-    int i = 0;
-    int counter = 0;
-    float new_buffer[128];
-    float moving_average[128];
-    float TOTALVAL = 0.0f;
-    Timer t;
-    t.start();
-    CLK = 0;
-    
-    t.reset();
-    while(1)
-    {
-        // From checking
-        float maxValue = 0, minValue = 128;
-        
-        int maxIndex = 0, minIndex = 0;
-        
-        float highestValue = 0.0f;
-        int highestValueIndex = 0;
-        
-        
-        CLK = 0;
-        SI = integrating == 0; 
-        wait_us(PERIOD);
-        
-        CLK = 1;
-        wait_us(PERIOD);
-        SI = 0;
-        integrating++;
-
-        // We are integrating
-        if(integrating < MAXT)
-        {
-            buffer[i] = Aout;
-            i++;
-        }
-        else if(integrating == MAXT)
-        {
-            // Low pass filter
-            for (int k = 1; k < 125; ++k) {
-                // To find the track
-                if(k > 18 && buffer[k] > highestValue)
-                {
-                    highestValueIndex = k;
-                }
-                moving_average[k] = (1.0f/3.0f) * (buffer[k-1] + buffer[k] + buffer[k+1]);
-            }
-            // High pass
-            for (int j = 1; j < 125; ++j) {
-                new_buffer[j] = moving_average[j] - moving_average[j-1];
-            }
-            
-            // After highpass, we will have one high pass, and one low value
-            for (int i = 5; i < 123; ++i) {
-                if (new_buffer[i] > maxValue) {
-                    maxValue = new_buffer[i];
-                    maxIndex = i;
-                }
-            }   
-            for (int i = maxIndex; i < 123; ++i) {
-                if (new_buffer[i] < minValue){
-                    minValue = new_buffer[i];
-                    minIndex = i;
-                }
-            }
-            // This constact MUST be changed.
-            int change = midpoint - (maxIndex + minIndex)/2;
-            change = change > 0? change : -change;
-            const int WIDTH_MIN = 20;
-            const int WIDTH_MAX = 100;
-          if(change < 40 && ((minIndex - maxIndex) > WIDTH_MIN) && (minIndex - maxIndex <WIDTH_MAX))
-            {
-                midpoint = (maxIndex + minIndex) / 2;
-            }
-            else
-            {
-                // mid is not found
-            }
-        }
-        // Period is 2 us
-        // We are collecting data 128 times which is total integration time to be 256 us.
-        // We can either collecting more data but we are not doing ot right now
-        // Anyway, we update the servo at every 256 us * 80 = 20.48 ms to be safe 
-        // between 60 ~ 70
-        if(t.read_ms() >= 16)//integrating > INTEGRATIONTIME)
-        {   
-            t.reset();
-            integrating = 0;
-            i = 0;
-            servoControl_race(midpoint);
-        }
-    }
-}
-/*
-    There are 128 possible mid points (prefer 100)
-    Servo PWM varies from LEFT = 0.09f; RIGHT = 0.06f; -> 0.03
-    PWM 0.03 / 128 = 0.00234375
-*/
-void servoControl_freescale(int midpoint)
-{
-    // Assume the cneter is 55
-    int center = 58;
-    float k_p = 0.6f;
-    const float UNIT = 0.03f / 115;
-    float change;
-    if(midpoint < center)
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    else
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    
-    // Ensure we don't go past servo limits
-    if((change + CENTER) > LEFT)
-    {
-        servo.write(LEFT);
-    }
-    else if((change + CENTER) < RIGHT)
-    {
-        servo.write(RIGHT);
-    }
-    else
-    {
-        servo.write(CENTER + change);
-    }
-}
-
-
-
 void BlueSMiRF(void const *args)
 {
     Thread::wait(10000);
@@ -560,7 +294,12 @@ int main() {
     
     wait(2);
     
-    
+    DIGITAL_LOW.write(0);
+
+    led_blue.write(0);
+    led_red.write(0);
+    led_green.write(0);
+
     // Initializing
     bluetooth.format();
     bluetooth.baud(115200);
@@ -568,14 +307,35 @@ int main() {
     servo.write(0.075f);    
     motor.period(.001f);
     IN_HS1.period(.001f);
-    motor.write(0.39f); // Assume we are fee8ding constant velocity
+    //motor.write(0.39f); // Assume we are fee8ding constant velocity
     IN_HS1.write(0.0f);
     motor2.period(0.001f);
     IN_HS2.period(0.001f);
-    motor2.write(0.39f);
+    //motor2.write(0.39f);
     IN_HS2.write(0.0f);
-    Thread bThread(BlueSMiRF);
-    
+    //Thread bThread(BlueSMiRF);
+
+    wait(1);
+
+    if(!attempt_2.read()){ 
+        led_blue.write(1); // YELLOW LIGHT -- SUB-OPTIMAL CASE
+
+        motor.write(0.45f);
+        motor2.write(0.45);
+    }
+    else if(!attempt_3.read()){
+        led_red.write(1); // CYAN LIGHT - SAFETY CASE
+
+        motor.write(0.435f);
+        motor2.write(0.435f);
+    }
+    else{
+        led_green.write(1); // PURPLE LIGHT -- BEST CASE
+
+        motor.write(0.48f);
+        motor2.write(0.48f);
+    }
+
     mainControl();
     //freescale();
     
