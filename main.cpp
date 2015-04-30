@@ -17,12 +17,11 @@ DigitalIn attempt_2(PTE21);
 DigitalIn attempt_3(PTE22);
 
 DigitalOut DIGITAL_LOW(PTE5);
-DigitalOut DIGITAL_HIGH(PTE4);
 
 DigitalOut led_green(LED_GREEN);
 DigitalOut led_red(LED_RED);
 DigitalOut led_blue(LED_BLUE);
-Ticker flipper;
+
 PwmOut servo(PTA12);
 PwmOut motor_left(PTD4); // IN_LS1
 PwmOut brake_left(PTA4); // IN_HS1
@@ -45,18 +44,15 @@ void dynamicPERIOD();
 float target_velocity = 2.5f; // average time per phase we are targetting (in ms)
 float motor_pwm = 0.1f; // 0.07
 float servo_pwm;
-uint16_t linescan_buffer[128];
-uint16_t track_buffer[128];
-uint16_t low_pass_filter[128];
-uint16_t high_pass_filter[127];
-uint16_t normalized_buffer[128];
+
+float linescan_buffer[128];
 
 float low_pwm = 0.21f;
 float high_pwm = 0.24f;
 float kill_pwm = 0.0f;
 float differential_turning = .045f;
 
-float k_p = 1.0f;
+float k_p = 0.9f;
 int turning_threshold = 25;
 int servo_update_ms = 16;
 
@@ -71,9 +67,6 @@ int max_value_hold;
 int integrating_hold;
 bool left_edge_hold;
 bool right_edge_hold;
-bool finish_line = false;
-
-uint16_t killswitch = 0;
 
 float exposure = 0;
 float camera_normalization[128] = {25,35,37,44,51,56,58,60,66,69,
@@ -89,11 +82,13 @@ float camera_normalization[128] = {25,35,37,44,51,56,58,60,66,69,
                                    91,90,89,87,85,84,82,80,79,77,
                                    76,75,75,75,74,73,72,70,68,64,
                                    57,53,44,42,37,31,24,22};
+
 const int LEFTMOTOR = 0;
 const int RIGHTMOTOR = 1;
-const float CENTER = 0.078f;
+const float CENTER = 0.075f;
 const float LEFT = 0.096f;
 const float RIGHT = 0.06f;
+
 float current_velocity;
 int buffer_pointer;
 int PERIOD = 1;
@@ -174,20 +169,21 @@ void mainControl()
     int MAXT = 129;
     int integrating = 0; 
     int i = 0;
+    float low_pass_filter[128];
+    float high_pass_filter[128];
     Timer t;
     t.start();
     CLK = 0;
+
     t.reset();
 
-    float max_value = -65535, min_value = 65535;
+    float max_value = 0, min_value = 128;
     int max_index = 0, min_index = 0;
-
-    int bias = 32768;
 
     while(1)
     {
         // From checking
-        max_value = -65535, min_value = 65535;
+        max_value = 0, min_value = 128;
         max_index = 0, min_index = 0;
 
         CLK = 0;
@@ -202,11 +198,12 @@ void mainControl()
         // We are integrating
         if(integrating < MAXT)
         {
-            linescan_buffer[i] = (uint16_t)((float)camera1 * 65535);
+            linescan_buffer[i] = camera1;
             ++i;
         }
         else if(integrating == MAXT)
         {   
+            /*
             // Normalize Camera Data 
             for (int j = 0; j < 128; ++j) {
                 if((linescan_buffer[j] * (100.0f/camera_normalization[j])) > 65535){
@@ -216,44 +213,37 @@ void mainControl()
                     normalized_buffer[j] = linescan_buffer[j] * (100.0f/camera_normalization[j]);
                 }
             }
+            */
             
             // Low Pass Filter
-            for (int k = 0; k < 128; ++k) {
-                if(k > 0 && k < 127){
-                    low_pass_filter[k] = (1.0f/3.0f) * (normalized_buffer[k-1] + normalized_buffer[k] + normalized_buffer[k+1]);
-                }
-                else if(k == 0){
-                    low_pass_filter[k] = (1.0f/2.0f) * (normalized_buffer[k] + normalized_buffer[k+1]);
-                }
-                else if(k == 127){
-                    low_pass_filter[k] = (1.0f/2.0f) * (normalized_buffer[k-1] + normalized_buffer[k]);
-                }
+            for (int k = 1; k < 125; ++k) {
+                low_pass_filter[k] = (1.0f/3.0f) * (linescan_buffer[k-1] + linescan_buffer[k] + linescan_buffer[k+1]);
             }
             
             // High Pass Filter
-            for (int j = 0; j < 127; ++j) {
-                high_pass_filter[j] = ((low_pass_filter[j]/2) - (low_pass_filter[j+1]/2)) + bias;
+            for (int j = 2; j < 125; ++j) {
+                high_pass_filter[j] = low_pass_filter[j] - low_pass_filter[j-1];
             }
         
             // After high pass, PIXEL 63 is now center.
             
-            for (int j = 6; j < 122; ++j) {
-                if ((high_pass_filter[j] - bias) < min_value){
-                    min_value = high_pass_filter[j] - bias;
-                    min_index = j;
+            for (int i = 5; i < 123; ++i) {
+                if (high_pass_filter[i] > max_value){
+                    max_value = high_pass_filter[i];
+                    max_index = i;
                 }
             }
 
-            for (int j = min_index; j < 122; ++j) {
-                if ((high_pass_filter[j] - bias) > max_value){
-                    max_value = high_pass_filter[j] - bias;
-                    max_index = j;
+            for (int i = max_index; i < 123; ++i) {
+                if (high_pass_filter[i] < min_value){
+                    min_value = high_pass_filter[i];
+                    min_index = i;
                 }
             }
 
             int change = midpoint - (max_index + min_index)/2;
             change = change > 0 ? change : -change;
-            const int WIDTH = 20;
+            const int WIDTH = 9;
 
             if(change < 60 && (min_index - max_index) < WIDTH && min_value < 0 && max_value > 0){
                 midpoint = (max_index + min_index)/2;
@@ -263,6 +253,7 @@ void mainControl()
                 // midpoint = midpoint_prev1 * 2 - midpoint_prev2;
             }
                     
+            /*
             midpoint_prev2 = midpoint_prev1;
             midpoint_prev1 = midpoint;
 
@@ -270,6 +261,7 @@ void mainControl()
             max_value_hold = max_value - bias;
             min_index_hold = min_index;
             max_index_hold = max_index;
+            */
 
             servoControl(midpoint);
         }
@@ -289,8 +281,8 @@ void mainControl()
 void servoControl(int midpoint)
 {
     // Assume the center is 64 (1 to 127 pixels)
-    int center = 64;
-    const float UNIT = 0.03f / 116;
+    int center = 63;
+    const float UNIT = 0.036f / 118;
     float change;
     
     /* If we are far away from the mid point we can:
@@ -301,18 +293,11 @@ void servoControl(int midpoint)
     1) kp = 1
     2) increase speed
     */
-
-    if(killswitch != 0){
-        low_pwm = kill_pwm;
-        high_pwm = kill_pwm;
-    }
-    else{
-        low_pwm = low_pwm;
-        high_pwm = high_pwm;
-    }
        
     if(midpoint < center)
     {
+        change = -UNIT * (center - midpoint) * k_p;
+        /* DIFFERENTIAL TURNING CODE
         // RIGHT TURN
         if(center - midpoint > turning_threshold)
         {
@@ -326,9 +311,12 @@ void servoControl(int midpoint)
             motor_left.write(motor_pwm); // Assume we are feeding constant velocity
             motor_right.write(motor_pwm);
         }
+        */
     }
     else
     {
+        change = -UNIT * (center - midpoint) * k_p;
+        /* DIFFERENTIAL TURNING CODE
         // LEFT TURN
         if(midpoint - center > turning_threshold)
         {
@@ -342,17 +330,9 @@ void servoControl(int midpoint)
             motor_left.write(motor_pwm); // Assume we are feeding constant velocity
             motor_right.write(motor_pwm);
         }
+        */
     }
         
-    if(midpoint < center)
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    else
-    {
-        change = -UNIT * (center - midpoint) * k_p;
-    }
-    
     // Ensure we don't go past servo limits
     if((change + CENTER) > LEFT)
     {
@@ -400,53 +380,51 @@ void telemetry_thread(void const *args){
     telemetry::Telemetry telemetry_obj(telemetry_hal);
     
     telemetry::Numeric<uint32_t> tele_time_ms(telemetry_obj, "time", "Time", "ms", 0);
+    telemetry::NumericArray<uint8_t, 128> tele_linescan(telemetry_obj, "linescan_buffer", "Linescan 8bit", "ADC", 0);
     //telemetry::NumericArray<uint16_t, 128> tele_linescan(telemetry_obj, "linescan", "Linescan", "ADC", 0);
     //telemetry::NumericArray<uint8_t, 128> tele_linescan_2(telemetry_obj, "linescan_2", "Linescan", "ADC", 0);
     // telemetry::NumericArray<uint16_t, 128> tele_normalized(telemetry_obj, "normalized_buffer", "Normalized Linescan", "ADC", 0);
     //telemetry::NumericArray<uint8_t, 128> tele_normalized_2(telemetry_obj, "normalized_buffer_2", "Normalized Linescan 8bit", "ADC", 0);  
     //telemetry::NumericArray<uint16_t, 128> tele_low_pass(telemetry_obj, "low_pass_filter", "Low Pass Filter", "ADC", 0);
     //telemetry::NumericArray<uint16_t, 127> tele_high_pass(telemetry_obj, "high_pass_filter", "High Pass Filter", "ADC", 0);
-    telemetry::Numeric<uint16_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
-    telemetry::Numeric<float> tele_motor_pwm(telemetry_obj, "motor_pwm", "Motor PWM", "pwm", 0);
+    telemetry::Numeric<uint8_t> tele_midpoint(telemetry_obj, "midpoint", "Midpoint", "pixel", 0);
+    //telemetry::Numeric<float> tele_motor_pwm(telemetry_obj, "motor_pwm", "Motor PWM", "pwm", 0);
     //telemetry::Numeric<float> tele_servo_pwm(telemetry_obj, "servo_pwm", "Servo PWM", "pwm", 0);
-    telemetry::Numeric<float> tele_low_pwm(telemetry_obj, "pwm", "Low PWM", "adc", 0);
-    telemetry::Numeric<float> tele_high_pwm(telemetry_obj, "pwm", "High PWM", "adc", 0);
-    telemetry::Numeric<float> tele_k(telemetry_obj, "k", "K Constant", "float", 0);
-    telemetry::Numeric<float> tele_differential(telemetry_obj, "differential_turning", "Differential Turning", "float", 0);
-    telemetry::Numeric<uint32_t> tele_turning(telemetry_obj, "turning_threshold", "Turning Threshold", "int", 0);
+    //telemetry::Numeric<float> tele_low_pwm(telemetry_obj, "pwm", "Low PWM", "adc", 0);
+    //telemetry::Numeric<float> tele_high_pwm(telemetry_obj, "pwm", "High PWM", "adc", 0);
+    //telemetry::Numeric<float> tele_k(telemetry_obj, "k", "K Constant", "float", 0);
+    //telemetry::Numeric<float> tele_differential(telemetry_obj, "differential_turning", "Differential Turning", "float", 0);
+    //telemetry::Numeric<uint32_t> tele_turning(telemetry_obj, "turning_threshold", "Turning Threshold", "int", 0);
     // telemetry::Numeric<uint32_t> tele_threshold(telemetry_obj, "threshold", "High Pass Threshold", "int", 0);
     // telemetry::Numeric<uint16_t> tele_min_index(telemetry_obj, "min_index", "Min Index", "index", 0);
     // telemetry::Numeric<uint16_t> tele_max_index(telemetry_obj, "max_index", "Max Index", "index", 0);
     // telemetry::Numeric<uint16_t> tele_camera_integration(telemetry_obj, "camera_integration_ms", "Camera Integration Time", "ms", 0);
     // telemetry::Numeric<uint16_t> tele_integration_time(telemetry_obj, "integrating", "Integration Time", "cycles", 0);
-    telemetry::Numeric<uint16_t> tele_killswitch(telemetry_obj, "killswitch", "Killswitch", "1/0", 0);
+    //telemetry::Numeric<uint16_t> tele_killswitch(telemetry_obj, "killswitch", "Killswitch", "1/0", 0);
 
     telemetry_obj.transmit_header();
     
     Timer timer;
     timer.start();
-    int start = timer.read_ms();
     
-    tele_low_pwm = low_pwm;
-    tele_high_pwm = high_pwm;
-    tele_motor_pwm = motor_pwm;
+    //tele_low_pwm = low_pwm;
+    //tele_high_pwm = high_pwm;
+    //tele_motor_pwm = motor_pwm;
     //tele_servo_pwm = servo_pwm;
-    tele_k = k_p;
-    tele_turning = turning_threshold;
-    tele_differential = differential_turning;
+    // tele_k = k_p;
+    // tele_turning = turning_threshold;
+    // tele_differential = differential_turning;
 
     telemetry_obj.do_io();
     Thread::wait(100);
     
     // Continuously Gather Data
     while(1){
-        tele_time_ms = timer.read_ms() - start;
+        tele_time_ms = timer.read_ms();
         
-        /*
         for (int i = 0; i < 128; ++i){
-            tele_linescan[i] = linescan_buffer[i];
+            tele_linescan[i] = (uint8_t)(linescan_buffer[i] * 255);
         }
-        */
 
         /* 8bit linescan
         for (int i = 0; i < 128; ++i){
@@ -494,32 +472,32 @@ void telemetry_thread(void const *args){
         }
         */
 
-        tele_low_pwm = low_pwm;
-        tele_high_pwm = high_pwm;
-        tele_motor_pwm = motor_pwm;
+        // tele_low_pwm = low_pwm;
+        // tele_high_pwm = high_pwm;
+        // tele_motor_pwm = motor_pwm;
         //tele_servo_pwm = servo_pwm;
-        tele_turning = turning_threshold;
-        tele_k = k_p;
-        tele_differential = differential_turning;
+        // tele_turning = turning_threshold;
+        // tele_k = k_p;
+        // tele_differential = differential_turning;
 
         // tele_camera_integration = camera_integration_ms;
         // tele_integration_time = integrating_hold;
 
-        tele_killswitch = killswitch;
+        // tele_killswitch = killswitch;
         
         telemetry_obj.do_io();
 
-        killswitch = tele_killswitch;
+        // killswitch = tele_killswitch;
         
-        low_pwm = tele_low_pwm;
-        high_pwm = tele_high_pwm;
-        turning_threshold = tele_turning;
-        k_p = tele_k;
-        differential_turning = tele_differential;
+        // low_pwm = tele_low_pwm;
+        // high_pwm = tele_high_pwm;
+        // turning_threshold = tele_turning;
+        // k_p = tele_k;
+        // differential_turning = tele_differential;
 
         // camera_integration_ms = tele_camera_integration;
                 
-        Thread::wait(300);
+        Thread::wait(36);
     }
 }
 
@@ -529,7 +507,6 @@ int main() {
     
     wait(2);
     DIGITAL_LOW.write(0);
-    DIGITAL_HIGH.write(1);
     led_blue.write(0);
     led_red.write(0);
     led_green.write(0);
@@ -537,34 +514,31 @@ int main() {
     if(!attempt_2.read()){ // YELLOW LIGHT -- SUB-OPTIMAL CASE
         led_blue.write(1); 
 
-        // .39s
-        low_pwm = 0.42f;
-        high_pwm = 0.345f;
-        differential_turning = 0.0f;
-        k_p = 1.5f;
-        turning_threshold = 24;
-        servo_update_ms = 16;
+        low_pwm = 0.45f;
+        high_pwm = 0.45f;
+        servo_update_ms = 12;
     }
     else if(!attempt_3.read()){
         led_red.write(1); // CYAN LIGHT -- SAFETY CASE
 
-                low_pwm = .3f;
-                high_pwm = .3f;
-                differential_turning = 0.0f;
-                k_p = 1.5f;
-                turning_threshold = 24;
-                servo_update_ms = 16;
-    }
-    else{
-        led_green.write(1); // PURPLE LIGHT -- BEST CASE
-
-        // 38 sec
-        low_pwm = 0.48f;
-        high_pwm = 0.39f;
+        low_pwm = 0.3f;
+        high_pwm = 0.3f;
+        servo_update_ms = 16;
+        /*
+        low_pwm = .3f;
+        high_pwm = .3f;
         differential_turning = 0.0f;
         k_p = 1.5f;
         turning_threshold = 24;
         servo_update_ms = 16;
+        */
+    }
+    else{
+        led_green.write(1); // PURPLE LIGHT -- BEST CASE
+        
+        low_pwm = 0.48f;
+        high_pwm = 0.48f;
+        servo_update_ms = 12;
     }
     
     // Initializing
@@ -578,6 +552,7 @@ int main() {
     brake_right.period(0.001f);
     motor_right.write(low_pwm);
     brake_right.write(0.0f);
+    
     //Thread bThread(BlueSMiRF);
     Thread teleThread(telemetry_thread);
     mainControl();
